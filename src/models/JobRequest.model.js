@@ -12,12 +12,18 @@ const WORK_TYPES = ['Remote', 'Hybrid', 'Onsite'];
 const URGENCY_LEVELS = ['Low', 'Medium', 'High'];
 
 const CATEGORIES = [
+    'Programming',
+    'Data Science',
+    'Designing',
+    'Networking',
+    'Management',
+    'Marketing',
+    'Cybersecurity',
     'Information Technology',
     'Healthcare',
     'Finance & Banking',
     'Education',
     'Manufacturing',
-    'Marketing',
     'Sales',
     'Human Resources',
     'Engineering',
@@ -76,9 +82,23 @@ const jobRequestSchema = new mongoose.Schema(
             required: [true, 'Work type is required'],
             enum: WORK_TYPES,
         },
-        jobLocation: {
+        country: {
             type: String,
-            required: [true, 'Location is required'],
+            required: [true, 'Country is required'],
+            trim: true,
+        },
+        state: {
+            type: String,
+            required: [true, 'State is required'],
+            trim: true,
+        },
+        city: {
+            type: String,
+            required: [true, 'City is required'],
+            trim: true,
+        },
+        pincode: {
+            type: String,
             trim: true,
         },
         requiredSkills: {

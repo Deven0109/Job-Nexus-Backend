@@ -126,7 +126,7 @@ export const register = asyncHandler(async (req, res) => {
  * @access  Public
  */
 export const login = asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
 
     // Find user and include password field
     const user = await User.findOne({ email }).select('+password +refreshToken');
@@ -134,7 +134,11 @@ export const login = asyncHandler(async (req, res) => {
     console.log('User found:', !!user);
 
     if (!user) {
-        throw ApiError.unauthorized('Invalid email or password');
+        throw ApiError.unauthorized('Invalid credentials');
+    }
+
+    if (role && user.role !== role) {
+        throw ApiError.unauthorized('Invalid credentials');
     }
 
     // Check if account is active
@@ -149,7 +153,7 @@ export const login = asyncHandler(async (req, res) => {
     const isPasswordValid = await user.comparePassword(password);
     console.log('Password valid:', isPasswordValid);
     if (!isPasswordValid) {
-        throw ApiError.unauthorized('Invalid email or password');
+        throw ApiError.unauthorized('Invalid credentials');
     }
 
     // ==================== FIRST-TIME LOGIN OTP FLOW ====================

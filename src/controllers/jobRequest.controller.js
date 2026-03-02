@@ -23,7 +23,7 @@ export const createJobRequest = asyncHandler(async (req, res) => {
 
     const {
         jobTitle, jobCategory, numberOfVacancies, experienceRequired,
-        salaryMin, salaryMax, workType, jobLocation,
+        salaryMin, salaryMax, workType, country, state, city, pincode,
         requiredSkills, jobDescription, urgency
     } = req.body;
 
@@ -37,7 +37,10 @@ export const createJobRequest = asyncHandler(async (req, res) => {
         salaryMin,
         salaryMax,
         workType,
-        jobLocation,
+        country,
+        state,
+        city,
+        pincode,
         requiredSkills,
         jobDescription,
         urgency: urgency || 'Medium',
@@ -131,7 +134,7 @@ export const updateJobRequest = asyncHandler(async (req, res) => {
 
     const allowedFields = [
         'jobTitle', 'jobCategory', 'numberOfVacancies', 'experienceRequired',
-        'salaryMin', 'salaryMax', 'workType', 'jobLocation',
+        'salaryMin', 'salaryMax', 'workType', 'country', 'state', 'city', 'pincode',
         'requiredSkills', 'jobDescription', 'urgency'
     ];
 
@@ -205,6 +208,7 @@ export const listJobRequests = asyncHandler(async (req, res) => {
         JobRequest.find(filter)
             .populate('companyId', 'companyName companyEmail industry companyLocation')
             .populate('createdByEmployer', 'firstName lastName email')
+            .populate('approvedByRecruiter', 'firstName lastName')
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit),
@@ -230,13 +234,72 @@ export const listJobRequests = asyncHandler(async (req, res) => {
 export const getJobRequestById = asyncHandler(async (req, res) => {
     const jobRequest = await JobRequest.findById(req.params.id)
         .populate('companyId', 'companyName companyEmail industry companyLocation companyDescription')
-        .populate('createdByEmployer', 'firstName lastName email phone');
+        .populate('createdByEmployer', 'firstName lastName email phone')
+        .populate('approvedByRecruiter', 'firstName lastName email');
 
     if (!jobRequest) {
         throw ApiError.notFound('Job request not found');
     }
 
     ApiResponse.success({ jobRequest }, 'Job request retrieved').send(res);
+});
+
+// ==================== RECRUITER/ADMIN: EDIT JOB REQUEST ====================
+
+/**
+ * @desc    Recruiter or Admin edits a job request
+ * @route   PUT /api/job-requests/:id
+ * @access  Private/Recruiter, Private/Admin
+ */
+export const updateJobRequestByAdminRecruiter = asyncHandler(async (req, res) => {
+    const jobRequest = await JobRequest.findById(req.params.id);
+
+    if (!jobRequest) {
+        throw ApiError.notFound('Job request not found');
+    }
+
+    // Capture editing recruiter
+    if (req.user.role === 'recruiter') {
+        jobRequest.approvedByRecruiter = req.user.id;
+    }
+
+    const allowedFields = [
+        'jobTitle', 'jobCategory', 'numberOfVacancies', 'experienceRequired',
+        'salaryMin', 'salaryMax', 'workType', 'country', 'state', 'city', 'pincode',
+        'requiredSkills', 'jobDescription', 'urgency'
+    ];
+
+    allowedFields.forEach(field => {
+        if (req.body[field] !== undefined) {
+            jobRequest[field] = req.body[field];
+        }
+    });
+
+    await jobRequest.save();
+
+    // If the request is already active, sync the changes to the live Job document
+    if (jobRequest.status === 'active') {
+        const liveJob = await Job.findOne({ jobRequestId: jobRequest._id });
+        if (liveJob) {
+            if (req.body.jobTitle !== undefined) liveJob.title = req.body.jobTitle;
+            if (req.body.jobCategory !== undefined) liveJob.category = req.body.jobCategory;
+            if (req.body.numberOfVacancies !== undefined) liveJob.vacancies = req.body.numberOfVacancies;
+            if (req.body.experienceRequired !== undefined) liveJob.experience = req.body.experienceRequired;
+            if (req.body.salaryMin !== undefined) liveJob.salaryMin = req.body.salaryMin;
+            if (req.body.salaryMax !== undefined) liveJob.salaryMax = req.body.salaryMax;
+            if (req.body.workType !== undefined) liveJob.workType = req.body.workType;
+            if (req.body.country !== undefined) liveJob.country = req.body.country;
+            if (req.body.state !== undefined) liveJob.state = req.body.state;
+            if (req.body.city !== undefined) liveJob.city = req.body.city;
+            if (req.body.pincode !== undefined) liveJob.pincode = req.body.pincode;
+            if (req.body.requiredSkills !== undefined) liveJob.requiredSkills = req.body.requiredSkills;
+            if (req.body.jobDescription !== undefined) liveJob.description = req.body.jobDescription;
+            if (req.body.urgency !== undefined) liveJob.urgency = req.body.urgency;
+            await liveJob.save();
+        }
+    }
+
+    ApiResponse.success({ jobRequest }, 'Job request updated successfully').send(res);
 });
 
 // ==================== RECRUITER: APPROVE JOB REQUEST ====================
@@ -312,7 +375,10 @@ export const activateJob = asyncHandler(async (req, res) => {
         category: jobRequest.jobCategory,
         vacancies: jobRequest.numberOfVacancies,
         experience: jobRequest.experienceRequired,
-        location: jobRequest.jobLocation,
+        country: jobRequest.country,
+        state: jobRequest.state,
+        city: jobRequest.city,
+        pincode: jobRequest.pincode,
         salaryMin: jobRequest.salaryMin,
         salaryMax: jobRequest.salaryMax,
         workType: jobRequest.workType,

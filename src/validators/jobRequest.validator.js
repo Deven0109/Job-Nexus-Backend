@@ -33,9 +33,21 @@ export const createJobRequestValidation = [
         .isIn(['Remote', 'Hybrid', 'Onsite'])
         .withMessage('Work type must be Remote, Hybrid, or Onsite'),
 
-    body('jobLocation')
+    body('country')
         .trim()
-        .notEmpty().withMessage('Location is required'),
+        .notEmpty().withMessage('Country is required'),
+
+    body('state')
+        .trim()
+        .notEmpty().withMessage('State is required'),
+
+    body('city')
+        .trim()
+        .notEmpty().withMessage('City is required'),
+
+    body('pincode')
+        .optional()
+        .trim(),
 
     body('requiredSkills')
         .isArray({ min: 1 }).withMessage('At least one skill is required'),
@@ -88,10 +100,24 @@ export const updateJobRequestValidation = [
         .isIn(['Remote', 'Hybrid', 'Onsite'])
         .withMessage('Work type must be Remote, Hybrid, or Onsite'),
 
-    body('jobLocation')
+    body('country')
         .optional()
         .trim()
-        .notEmpty().withMessage('Location cannot be empty'),
+        .notEmpty().withMessage('Country cannot be empty'),
+
+    body('state')
+        .optional()
+        .trim()
+        .notEmpty().withMessage('State cannot be empty'),
+
+    body('city')
+        .optional()
+        .trim()
+        .notEmpty().withMessage('City cannot be empty'),
+
+    body('pincode')
+        .optional()
+        .trim(),
 
     body('requiredSkills')
         .optional()

@@ -7,6 +7,14 @@ import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { buildPagination, paginationMeta } from '../utils/helpers.js';
 import { extractTextFromFile, parseResumeToProfile } from '../services/resumeParser.service.js';
+import path from 'path';
+import fs from 'fs';
+
+const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads', 'resumes');
+if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
 
 // ==================== GET PROFILE ====================
 
@@ -95,10 +103,20 @@ export const parseResume = asyncHandler(async (req, res) => {
     }
 
     // 1. Extract text from file buffer
-    const rawText = await extractTextFromFile(req.file.buffer, req.file.mimetype);
+    let parsedData = {};
+    try {
+        const rawText = await extractTextFromFile(req.file.buffer, req.file.mimetype);
+        parsedData = parseResumeToProfile(rawText);
+    } catch (err) {
+        console.warn('Silent parsing issue:', err.message);
+    }
 
-    // 2. Parse text to structured format based on candidateSchema
-    const parsedData = parseResumeToProfile(rawText);
+    // 1b. Save physical file to disk
+    const extension = path.extname(req.file.originalname) || '.pdf';
+    const fileName = `resume_${req.user.id}_${Date.now()}${extension}`;
+    const filePath = path.join(UPLOADS_DIR, fileName);
+    fs.writeFileSync(filePath, req.file.buffer);
+    const resumeUrl = `/uploads/resumes/${fileName}`;
 
     // 3. Auto-save the parsed data instantly
     const user = await User.findById(req.user.id);
@@ -118,6 +136,7 @@ export const parseResume = asyncHandler(async (req, res) => {
                 experience: parsedData.experience,
                 education: parsedData.education,
                 projects: parsedData.projects,
+                resumeUrl: resumeUrl,
                 isProfileComplete: true
             }
         },
@@ -126,8 +145,8 @@ export const parseResume = asyncHandler(async (req, res) => {
 
     // 4. Return JSON back to the client immediately
     ApiResponse.success(
-        { parsedProfile: parsedData, dbCandidate: candidate },
-        'Resume parsed and saved successfully'
+        { parsedProfile: parsedData, dbCandidate: candidate, resumeUrl },
+        'Resume uploaded and parsed successfully'
     ).send(res);
 });
 

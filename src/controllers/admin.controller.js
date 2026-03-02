@@ -354,65 +354,61 @@ export const updateUser = asyncHandler(async (req, res) => {
         { new: true, runValidators: true }
     ).select('firstName lastName email role phone isActive isEmailVerified lastLoginAt loginCount createdAt updatedAt');
 
-    // ========== ROLE CHANGE PROFILE ENSURANCE ==========
-    if (role && role !== user.role) {
-        if (role === USER_ROLES.CANDIDATE) {
-            await Candidate.findOneAndUpdate(
-                { user: updatedUser._id },
-                {
-                    $set: {
-                        firstName: updatedUser.firstName,
-                        lastName: updatedUser.lastName,
-                        email: updatedUser.email,
-                        phone: updatedUser.phone
-                    }
-                },
-                { upsert: true, new: true }
-            );
-        } else if (role === USER_ROLES.EMPLOYER) {
-            await Employer.findOneAndUpdate(
-                { userId: updatedUser._id },
-                {
-                    $set: {
-                        contactPersonName: updatedUser.firstName + (updatedUser.lastName ? ' ' + updatedUser.lastName : ''),
-                        contactPersonEmail: updatedUser.email,
-                        contactPersonPhone: updatedUser.phone,
-                        companyName: `${updatedUser.firstName}'s Company`,
-                        companyEmail: updatedUser.email,
-                        industry: 'Not Specified',
-                        companyLocation: 'Not Specified'
-                    }
-                },
-                { upsert: true, new: true }
-            );
-        }
-    } else {
-        // Even if role hasn't changed, sync the names/email if they were updated
-        if (updatedUser.role === USER_ROLES.CANDIDATE) {
-            await Candidate.findOneAndUpdate(
-                { user: updatedUser._id },
-                {
-                    $set: {
-                        firstName: updatedUser.firstName,
-                        lastName: updatedUser.lastName,
-                        email: updatedUser.email,
-                        phone: updatedUser.phone
-                    }
-                }
-            );
-        } else if (updatedUser.role === USER_ROLES.EMPLOYER) {
-            await Employer.findOneAndUpdate(
-                { userId: updatedUser._id },
-                {
-                    $set: {
-                        contactPersonName: updatedUser.firstName + (updatedUser.lastName ? ' ' + updatedUser.lastName : ''),
-                        contactPersonEmail: updatedUser.email,
-                        contactPersonPhone: updatedUser.phone,
-                        companyEmail: updatedUser.email
-                    }
-                }
-            );
-        }
+    // ========== ROLE-SPECIFIC PROFILE SYNC ==========
+    if (updatedUser.role === USER_ROLES.CANDIDATE) {
+        const { skills, education, experience, bio, location } = req.body;
+        await Candidate.findOneAndUpdate(
+            { user: updatedUser._id },
+            {
+                $set: cleanObject({
+                    firstName: updatedUser.firstName,
+                    lastName: updatedUser.lastName,
+                    email: updatedUser.email,
+                    phone: updatedUser.phone,
+                    location,
+                    bio,
+                    skills,
+                    education,
+                    experience
+                })
+            },
+            { upsert: true }
+        );
+    } else if (updatedUser.role === USER_ROLES.EMPLOYER) {
+        const {
+            companyName,
+            industry,
+            companyLocation,
+            companyDescription,
+            companyWebsite,
+            companySize,
+            companyEmail,
+            logo,
+            status,
+            verifiedByAdmin
+        } = req.body;
+
+        await Employer.findOneAndUpdate(
+            { userId: updatedUser._id },
+            {
+                $set: cleanObject({
+                    contactPersonName: updatedUser.firstName + (updatedUser.lastName ? ' ' + updatedUser.lastName : ''),
+                    contactPersonEmail: updatedUser.email,
+                    contactPersonPhone: updatedUser.phone,
+                    companyName,
+                    industry,
+                    companyLocation,
+                    companyDescription,
+                    companyWebsite,
+                    companySize,
+                    companyEmail,
+                    logo,
+                    status,
+                    verifiedByAdmin
+                })
+            },
+            { upsert: true }
+        );
     }
 
     ApiResponse.success(

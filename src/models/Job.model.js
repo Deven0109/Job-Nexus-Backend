@@ -14,6 +14,10 @@ const jobSchema = new mongoose.Schema(
             required: [true, 'Category is required'],
             enum: CATEGORIES,
         },
+        subcategory: {
+            type: String,
+            trim: true,
+        },
         vacancies: {
             type: Number,
             required: [true, 'Number of vacancies is required'],
@@ -24,9 +28,23 @@ const jobSchema = new mongoose.Schema(
             required: [true, 'Experience requirement is required'],
             trim: true,
         },
-        location: {
+        country: {
             type: String,
-            required: [true, 'Location is required'],
+            required: [true, 'Country is required'],
+            trim: true,
+        },
+        state: {
+            type: String,
+            required: [true, 'State is required'],
+            trim: true,
+        },
+        city: {
+            type: String,
+            required: [true, 'City is required'],
+            trim: true,
+        },
+        pincode: {
+            type: String,
             trim: true,
         },
         salaryMin: {
@@ -93,7 +111,7 @@ const jobSchema = new mongoose.Schema(
 
 // Indexes
 jobSchema.index({ title: 'text', description: 'text', requiredSkills: 'text' });
-jobSchema.index({ location: 1 });
+jobSchema.index({ country: 1, state: 1, city: 1 });
 jobSchema.index({ status: 1 });
 jobSchema.index({ visibility: 1 });
 jobSchema.index({ companyId: 1 });

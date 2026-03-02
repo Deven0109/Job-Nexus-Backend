@@ -10,7 +10,8 @@ import {
     approveJobRequest,
     rejectJobRequest,
     activateJob,
-    toggleJobStatus
+    toggleJobStatus,
+    updateJobRequestByAdminRecruiter
 } from '../controllers/jobRequest.controller.js';
 import { createJobRequestValidation, updateJobRequestValidation } from '../validators/jobRequest.validator.js';
 import validate from '../middleware/validate.js';
@@ -49,6 +50,9 @@ router.get('/:id', authorize('recruiter', 'admin'), getJobRequestById);
 
 // PATCH /api/job-requests/:id/toggle-status — Toggle between active and inactive
 router.patch('/:id/toggle-status', authorize('recruiter', 'admin'), toggleJobStatus);
+
+// PUT /api/job-requests/:id — Edit job request by recruiter/admin
+router.put('/:id', authorize('recruiter', 'admin'), updateJobRequestValidation, validate, updateJobRequestByAdminRecruiter);
 
 // ==================== RECRUITER ONLY ROUTES ====================
 

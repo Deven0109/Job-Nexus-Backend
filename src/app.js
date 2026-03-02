@@ -3,6 +3,12 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Custom NoSQL injection sanitizer (express-mongo-sanitize is incompatible with Express 5)
 import config from './config/env.js';
 import errorHandler from './middleware/errorHandler.js';
@@ -99,6 +105,9 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString(),
     });
 });
+
+// Serve static files from public directory
+app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
 
 import jobRoutes from './routes/job.routes.js';
 

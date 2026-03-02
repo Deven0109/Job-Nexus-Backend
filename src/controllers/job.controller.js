@@ -18,26 +18,34 @@ export const getJobs = asyncHandler(async (req, res) => {
     }
 
     if (req.query.location) {
-        filter.location = new RegExp(req.query.location, 'i');
+        const locRegex = new RegExp(req.query.location, 'i');
+        filter.$or = [
+            { city: locRegex },
+            { state: locRegex },
+            { country: locRegex }
+        ];
+    }
+
+    if (req.query.country) {
+        filter.country = new RegExp(`^${req.query.country}$`, 'i');
     }
 
     if (req.query.states) {
         const statesList = req.query.states.split(',').map(s => s.trim());
-        if (filter.location) {
-            // we already have a location (country/city), let's use an $and
-            filter.$and = [
-                { location: filter.location },
-                { location: new RegExp(statesList.join('|'), 'i') }
-            ];
-            delete filter.location;
+        if (filter.state) {
+            filter.state = { $in: [...statesList, filter.state] };
         } else {
-            filter.location = new RegExp(statesList.join('|'), 'i');
+            filter.state = new RegExp(statesList.join('|'), 'i');
         }
+    } else if (req.query.state) {
+        filter.state = new RegExp(`^${req.query.state}$`, 'i');
     }
 
     if (req.query.categories) {
-        const cats = req.query.categories.split(',').map(c => c.trim());
+        const cats = req.query.categories.split(',').map(c => new RegExp(`^${c.trim()}$`, 'i'));
         filter.category = { $in: cats };
+    } else if (req.query.category) {
+        filter.category = new RegExp(`^${req.query.category}$`, 'i');
     }
 
     if (req.query.skills) {
