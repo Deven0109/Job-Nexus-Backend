@@ -1,7 +1,9 @@
 import User from '../models/User.model.js';
 import Employer from '../models/Employer.model.js';
 import Job from '../models/Job.model.js';
+import Application from '../models/Application.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
+
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 
@@ -112,4 +114,48 @@ export const getDashboard = asyncHandler(async (req, res) => {
     };
 
     ApiResponse.success({ stats }, 'Dashboard data retrieved').send(res);
+});
+
+/**
+ * @desc    Get active jobs for this employer (posted by recruiter)
+ * @route   GET /api/employer/active-jobs
+ * @access  Private/Employer
+ */
+export const getActiveJobs = asyncHandler(async (req, res) => {
+    // Find the employer document for this user
+    const employerProfile = await Employer.findOne({ userId: req.user.id });
+    if (!employerProfile) {
+        throw ApiError.notFound('Employer profile not found');
+    }
+
+    const jobs = await Job.find({ companyId: employerProfile._id })
+        .sort({ createdAt: -1 });
+
+    ApiResponse.success({ jobs }, 'Active jobs retrieved').send(res);
+});
+
+/**
+ * @desc    Get recent activity for employer dashboard
+ * @route   GET /api/employer/recent-activity
+ * @access  Private/Employer
+ */
+export const getRecentActivity = asyncHandler(async (req, res) => {
+    const employerProfile = await Employer.findOne({ userId: req.user.id });
+    if (!employerProfile) {
+        throw ApiError.notFound('Employer profile not found');
+    }
+
+    const jobs = await Job.find({ companyId: employerProfile._id });
+    const jobIds = jobs.map(j => j._id);
+
+    const activity = await Application.find({ job: { $in: jobIds } })
+        .populate({
+            path: 'candidate',
+            select: 'firstName lastName email avatar'
+        })
+        .populate('job', 'title location city state country workType experience salaryMin salaryMax')
+        .sort({ updatedAt: -1 })
+        .limit(10);
+
+    ApiResponse.success(activity, 'Recent activity retrieved').send(res);
 });

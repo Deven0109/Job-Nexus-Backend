@@ -11,19 +11,33 @@ import { buildPagination, paginationMeta } from '../utils/helpers.js';
 export const getJobs = asyncHandler(async (req, res) => {
     const { page, limit, skip } = buildPagination(req.query);
     const filter = { status: 'active', visibility: 'public' };
+    const andClauses = [];
 
     // Handle explicit search or params
     if (req.query.title) {
-        filter.title = new RegExp(req.query.title, 'i');
+        const titleRegex = new RegExp(req.query.title, 'i');
+        andClauses.push({
+            $or: [
+                { title: titleRegex },
+                { category: titleRegex },
+                { requiredSkills: titleRegex }
+            ]
+        });
     }
 
     if (req.query.location) {
         const locRegex = new RegExp(req.query.location, 'i');
-        filter.$or = [
-            { city: locRegex },
-            { state: locRegex },
-            { country: locRegex }
-        ];
+        andClauses.push({
+            $or: [
+                { city: locRegex },
+                { state: locRegex },
+                { country: locRegex }
+            ]
+        });
+    }
+
+    if (andClauses.length > 0) {
+        filter.$and = andClauses;
     }
 
     if (req.query.country) {
@@ -45,7 +59,24 @@ export const getJobs = asyncHandler(async (req, res) => {
         const cats = req.query.categories.split(',').map(c => new RegExp(`^${c.trim()}$`, 'i'));
         filter.category = { $in: cats };
     } else if (req.query.category) {
-        filter.category = new RegExp(`^${req.query.category}$`, 'i');
+        const category = req.query.category;
+        if (category === "Programming") {
+            filter.title = { $regex: "developer|engineer|software|mern|react|node|java|python|flutter", $options: "i" };
+        } else if (category === "Data Science") {
+            filter.title = { $regex: "data|machine learning|ai|analytics|ml", $options: "i" };
+        } else if (category === "Designing") {
+            filter.title = { $regex: "designer|ui|ux|graphic|product", $options: "i" };
+        } else if (category === "Networking") {
+            filter.title = { $regex: "network|system|cloud|it support", $options: "i" };
+        } else if (category === "Management") {
+            filter.title = { $regex: "manager|management|operations|hr", $options: "i" };
+        } else if (category === "Marketing") {
+            filter.title = { $regex: "marketing|seo|social media|content", $options: "i" };
+        } else if (category === "Cybersecurity") {
+            filter.title = { $regex: "security|cyber|hacker|penetration|soc", $options: "i" };
+        } else {
+            filter.category = new RegExp(`^${category}$`, 'i');
+        }
     }
 
     if (req.query.skills) {

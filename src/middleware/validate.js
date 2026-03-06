@@ -16,7 +16,7 @@ const validate = (req, res, next) => {
             message: err.msg,
         }));
 
-        throw ApiError.badRequest('Validation failed', extractedErrors);
+        return next(ApiError.badRequest('Validation failed', extractedErrors));
     }
 
     next();

@@ -34,15 +34,17 @@ export const EXPERIENCE_LEVELS = {
 };
 
 export const APPLICATION_STATUS = {
-    APPLIED: 'applied',
-    SCREENING: 'screening',
-    SHORTLISTED: 'shortlisted',
-    SUBMITTED_TO_EMPLOYER: 'submitted_to_employer',
-    INTERVIEWING: 'interviewing',
-    OFFERED: 'offered',
-    HIRED: 'hired',
-    REJECTED: 'rejected',
-    WITHDRAWN: 'withdrawn',
+    APPLIED: 'Applied',
+    UNDER_REVIEW: 'Under Review',
+    RECRUITER_SHORTLISTED: 'Recruiter Shortlisted',
+    RECRUITER_REJECTED: 'Recruiter Rejected',
+    EMPLOYER_SHORTLISTED: 'Employer Shortlisted',
+    EMPLOYER_REJECTED: 'Employer Rejected',
+    INTERVIEW_SCHEDULED: 'Interview Scheduled',
+    INTERVIEW_COMPLETED: 'Interview Completed',
+    SELECTED_NEXT_ROUND: 'Selected Next Round',
+    FINAL_SELECTED: 'Final Selected',
+    FINAL_REJECTED: 'Final Rejected',
 };
 
 export const INTERVIEW_STATUS = {

@@ -43,6 +43,10 @@ const jobSchema = new mongoose.Schema(
             required: [true, 'City is required'],
             trim: true,
         },
+        location: {
+            type: String,
+            trim: true,
+        },
         pincode: {
             type: String,
             trim: true,
@@ -108,6 +112,14 @@ const jobSchema = new mongoose.Schema(
     },
     { timestamps: true }
 );
+
+// Pre-save hook to generate formatted location
+jobSchema.pre('save', async function () {
+    if (this.isModified('city') || this.isModified('state') || this.isModified('country') || !this.location) {
+        const parts = [this.city, this.state, this.country].filter(Boolean);
+        this.location = parts.join(', ').toUpperCase();
+    }
+});
 
 // Indexes
 jobSchema.index({ title: 'text', description: 'text', requiredSkills: 'text' });

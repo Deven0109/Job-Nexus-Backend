@@ -3,7 +3,11 @@ import {
     getProfile,
     updateProfile,
     getDashboard,
+    getActiveJobs,
+    getRecentActivity,
 } from '../controllers/employer.controller.js';
+
+
 import { updateProfileValidation } from '../validators/profile.validator.js';
 import { createJobRequestValidation, updateJobRequestValidation } from '../validators/jobRequest.validator.js';
 import { createJobRequest, getMyJobRequests, getMyJobRequestById, updateJobRequest, cancelJobRequest } from '../controllers/jobRequest.controller.js';
@@ -20,6 +24,10 @@ router.use(auth, authorize('employer'));
 
 // GET /api/employer/dashboard — Dashboard stats
 router.get('/dashboard', getDashboard);
+
+// GET /api/employer/recent-activity — Dashboard recent activity
+router.get('/recent-activity', getRecentActivity);
+
 
 // ==================== PROFILE ====================
 
@@ -45,6 +53,10 @@ router.put('/job-request/:id', updateJobRequestValidation, validate, updateJobRe
 
 // DELETE /api/employer/job-request/:id — Cancel own pending job request
 router.delete('/job-request/:id', cancelJobRequest);
+
+// GET /api/employer/active-jobs — View own published jobs
+router.get('/active-jobs', getActiveJobs);
+
 
 // ==================== FUTURE ROUTES ====================
 // GET    /api/employer/jobs              — Job requests (posted by recruiter for this employer)

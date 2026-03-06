@@ -18,14 +18,22 @@ const applicationSchema = new mongoose.Schema(
             enum: Object.values(APPLICATION_STATUS),
             default: APPLICATION_STATUS.APPLIED,
         },
-        resume: {
-            type: String, // S3 URL
+        resumeUrl: {
+            type: String, // Public URL to resume
         },
-        answers: [
+        interviewRounds: [
             {
-                question: String,
-                answer: String,
-            },
+                roundNumber: Number,
+                meetLink: String,
+                meetCode: String,
+                scheduledAt: Date,
+                createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+                result: {
+                    type: String,
+                    enum: ["Pending", "Selected", "Rejected"],
+                    default: "Pending"
+                }
+            }
         ],
         notes: [
             {

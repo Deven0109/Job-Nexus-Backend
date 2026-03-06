@@ -251,7 +251,7 @@ export const getJobRequestById = asyncHandler(async (req, res) => {
  * @route   PUT /api/job-requests/:id
  * @access  Private/Recruiter, Private/Admin
  */
-export const updateJobRequestByAdminRecruiter = asyncHandler(async (req, res) => {
+export const updateJobRequestByAdminRecruiter = asyncHandler(async (req, res, next) => {
     const jobRequest = await JobRequest.findById(req.params.id);
 
     if (!jobRequest) {

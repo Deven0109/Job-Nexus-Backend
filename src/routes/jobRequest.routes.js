@@ -26,7 +26,7 @@ router.use(auth);
 // ==================== EMPLOYER ROUTES ====================
 
 // POST /api/job-requests — Submit a new job request
-router.post('/', authorize('employer'), createJobRequestValidation, validate, createJobRequest);
+router.post('/', authorize('employer'), ...createJobRequestValidation, validate, createJobRequest);
 
 // GET /api/job-requests/my — View own job requests
 router.get('/my', authorize('employer'), getMyJobRequests);
@@ -35,7 +35,7 @@ router.get('/my', authorize('employer'), getMyJobRequests);
 router.get('/my/:id', authorize('employer'), getMyJobRequestById);
 
 // PUT /api/job-requests/my/:id — Edit own pending job request
-router.put('/my/:id', authorize('employer'), updateJobRequestValidation, validate, updateJobRequest);
+router.put('/my/:id', authorize('employer'), ...updateJobRequestValidation, validate, updateJobRequest);
 
 // DELETE /api/job-requests/my/:id — Cancel own pending job request
 router.delete('/my/:id', authorize('employer'), cancelJobRequest);
@@ -52,7 +52,7 @@ router.get('/:id', authorize('recruiter', 'admin'), getJobRequestById);
 router.patch('/:id/toggle-status', authorize('recruiter', 'admin'), toggleJobStatus);
 
 // PUT /api/job-requests/:id — Edit job request by recruiter/admin
-router.put('/:id', authorize('recruiter', 'admin'), updateJobRequestValidation, validate, updateJobRequestByAdminRecruiter);
+router.put('/:id', authorize('recruiter', 'admin'), ...updateJobRequestValidation, validate, updateJobRequestByAdminRecruiter);
 
 // ==================== RECRUITER ONLY ROUTES ====================
 

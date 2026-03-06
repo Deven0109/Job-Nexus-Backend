@@ -12,14 +12,14 @@ import ApiError from '../utils/ApiError.js';
 const authorize = (...roles) => {
     return (req, res, next) => {
         if (!req.user) {
-            throw ApiError.unauthorized('Authentication required');
+            return next(ApiError.unauthorized('Authentication required'));
         }
 
         if (!roles.includes(req.user.role)) {
             console.warn(`[RBAC] Access denied for user ${req.user.email}. Role: '${req.user.role}', Needed: ${roles.join(' or ')}`);
-            throw ApiError.forbidden(
+            return next(ApiError.forbidden(
                 `Role '${req.user.role}' is not authorized to access this resource`
-            );
+            ));
         }
 
         next();

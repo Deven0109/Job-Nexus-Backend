@@ -22,6 +22,9 @@ import candidateRoutes from './routes/candidate.routes.js';
 import recruiterRoutes from './routes/recruiter.routes.js';
 import employerRoutes from './routes/employer.routes.js';
 import jobRequestRoutes from './routes/jobRequest.routes.js';
+import categoryRoutes from './routes/category.routes.js';
+import applicationRoutes from './routes/application.routes.js';
+
 
 const app = express();
 
@@ -119,7 +122,10 @@ app.use('/api/candidate', candidateRoutes);
 app.use('/api/recruiter', recruiterRoutes);
 app.use('/api/employer', employerRoutes);
 app.use('/api/job-requests', jobRequestRoutes);
+app.use('/api/categories', categoryRoutes);
 app.use('/api/jobs', jobRoutes);
+app.use('/api/applications', applicationRoutes);
+
 
 // Future route modules:
 // app.use('/api/applications', applicationRoutes);
@@ -130,7 +136,7 @@ app.use('/api/jobs', jobRoutes);
 
 // ==================== 404 HANDLER ====================
 
-app.all('{*path}', (req, res, next) => {
+app.use((req, res, next) => {
     next(ApiError.notFound(`Route ${req.originalUrl} not found`));
 });
 
