@@ -60,6 +60,11 @@ const jobSchema = new mongoose.Schema(
             type: Number,
             required: [true, 'Maximum salary is required'],
         },
+        currency: {
+            type: String,
+            enum: ['USD', 'INR', 'EUR', 'GBP', 'AED', 'CAD', 'AUD', 'SGD', 'SAR', 'QAR'],
+            default: 'INR',
+        },
         workType: {
             type: String,
             required: [true, 'Work type is required'],

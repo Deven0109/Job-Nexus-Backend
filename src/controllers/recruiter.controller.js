@@ -7,7 +7,7 @@ import asyncHandler from '../utils/asyncHandler.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { buildPagination, paginationMeta, buildSort } from '../utils/helpers.js';
-import { USER_ROLES } from '../utils/constants.js';
+import { USER_ROLES, APPLICATION_STATUS } from '../utils/constants.js';
 
 // ==================== GET PROFILE ====================
 
@@ -65,36 +65,57 @@ export const updateProfile = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter
  */
 export const getDashboard = asyncHandler(async (req, res) => {
-    const [activeJobs, totalCandidates, pendingOffers, pipelineStats] = await Promise.all([
-        Job.countDocuments({ createdByRecruiter: req.user.id, status: 'active' }),
-        User.countDocuments({ role: USER_ROLES.CANDIDATE, isActive: true }),
-        Application.countDocuments({ status: 'offered' }),
-        Application.aggregate([
-            { $group: { _id: '$status', count: { $sum: 1 } } }
-        ])
-    ]);
+    // Fetch jobs created by this recruiter
+    const myJobs = await Job.find({ createdByRecruiter: req.user.id }, '_id createdAt status');
+    const myJobIds = myJobs.map(job => job._id);
 
-    const pipelineSummary = {
-        applied: 0,
-        screening: 0,
-        shortlisted: 0,
-        interviewing: 0,
-        offered: 0,
-        hired: 0,
-    };
+    const totalJobs = myJobs.length;
+    const activeJobs = myJobs.filter(job => job.status === 'active').length;
 
-    pipelineStats.forEach(stat => {
-        if (pipelineSummary.hasOwnProperty(stat._id)) {
-            pipelineSummary[stat._id] = stat.count;
-        }
-    });
+    // Fetch all applications for these jobs
+    const allApps = await Application.find({ job: { $in: myJobIds } })
+        .populate('job', 'title')
+        .populate('candidate', 'firstName lastName avatar')
+        .sort({ createdAt: -1 });
+
+    const totalApplications = allApps.length;
+
+    // Define shortlisted statuses (including interview and selected stages)
+    const shortlistedStatuses = [
+        APPLICATION_STATUS.RECRUITER_SHORTLISTED,
+        APPLICATION_STATUS.EMPLOYER_SHORTLISTED,
+        APPLICATION_STATUS.INTERVIEW_SCHEDULED,
+        APPLICATION_STATUS.INTERVIEW_COMPLETED,
+        APPLICATION_STATUS.SELECTED_NEXT_ROUND,
+        APPLICATION_STATUS.FINAL_SELECTED
+    ];
+
+    // Count applications in any of the shortlisted/advanced stages
+    const shortlistedCount = allApps.filter(app => shortlistedStatuses.includes(app.status)).length;
+
+    // Send raw dates for frontend Week/Month/Year chart grouping
+    const jobDates = myJobs.map(job => job.createdAt);
+    const applicationDates = allApps.map(app => app.createdAt);
+
+    // Recent activity (latest 10 applications for frontend queue)
+    const recentActivity = allApps.slice(0, 10).map(app => ({
+        id: app._id,
+        candidateName: `${app.candidate?.firstName} ${app.candidate?.lastName}`,
+        jobTitle: app.job?.title,
+        jobId: app.job?._id,
+        action: `applied for ${app.job?.title}`,
+        avatar: app.candidate?.avatar,
+        time: app.createdAt
+    }));
 
     const stats = {
+        totalJobs,
         activeJobs,
-        totalCandidates,
-        interviewsToday: 0, // Placeholder for interview module
-        pendingOffers,
-        pipelineSummary
+        totalApplications,
+        shortlistedCount,
+        jobDates,
+        applicationDates,
+        recentActivity
     };
 
     ApiResponse.success({ stats }, 'Dashboard data retrieved').send(res);
