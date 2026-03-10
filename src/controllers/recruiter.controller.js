@@ -3,6 +3,7 @@ import Job from '../models/Job.model.js';
 import Application from '../models/Application.model.js';
 import Candidate from '../models/Candidate.model.js';
 import JobRequest from '../models/JobRequest.model.js';
+import RecruiterCategory from '../models/RecruiterCategory.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
@@ -48,6 +49,7 @@ export const updateProfile = asyncHandler(async (req, res) => {
     if (lastName) user.lastName = lastName;
     if (phone !== undefined) user.phone = phone;
     if (avatar !== undefined) user.avatar = avatar;
+    if (req.body.categories !== undefined) user.categories = req.body.categories;
 
     await user.save({ validateBeforeSave: true });
 
@@ -57,7 +59,99 @@ export const updateProfile = asyncHandler(async (req, res) => {
     ).send(res);
 });
 
+// ==================== CATEGORY & JOB TITLE MANAGEMENT ====================
+
+/**
+ * @desc    Get recruiter's managed categories and job titles
+ * @route   GET /api/recruiter/categories
+ * @access  Private/Recruiter
+ */
+export const getMyCategories = asyncHandler(async (req, res) => {
+    const categories = await RecruiterCategory.find({ recruiterId: req.user.id });
+    ApiResponse.success({ categories }, 'Categories retrieved').send(res);
+});
+
+/**
+ * @desc    Add a category with job titles
+ * @route   POST /api/recruiter/categories
+ * @access  Private/Recruiter
+ */
+export const addMyCategory = asyncHandler(async (req, res) => {
+    const { categoryName, selectedJobTitles } = req.body;
+
+    if (!categoryName || !selectedJobTitles || selectedJobTitles.length === 0) {
+        throw ApiError.badRequest('Category name and at least one job title are required');
+    }
+
+    const existing = await RecruiterCategory.findOne({ recruiterId: req.user.id, categoryName });
+    if (existing) {
+        throw ApiError.badRequest(`You have already added mapping for category: ${categoryName}`);
+    }
+
+    const newCategory = await RecruiterCategory.create({
+        recruiterId: req.user.id,
+        categoryName,
+        selectedJobTitles
+    });
+
+    ApiResponse.created({ category: newCategory }, 'Category mapping added').send(res);
+});
+
+/**
+ * @desc    Update a managed category
+ * @route   PUT /api/recruiter/categories/:id
+ * @access  Private/Recruiter
+ */
+export const updateMyCategory = asyncHandler(async (req, res) => {
+    const { selectedJobTitles } = req.body;
+
+    if (!selectedJobTitles || selectedJobTitles.length === 0) {
+        throw ApiError.badRequest('At least one job title is required');
+    }
+
+    const category = await RecruiterCategory.findOneAndUpdate(
+        { _id: req.params.id, recruiterId: req.user.id },
+        { selectedJobTitles },
+        { new: true, runValidators: true }
+    );
+
+    if (!category) {
+        throw ApiError.notFound('Category mapping not found or unauthorized');
+    }
+
+    ApiResponse.success({ category }, 'Category mapping updated').send(res);
+});
+
+/**
+ * @desc    Delete a managed category
+ * @route   DELETE /api/recruiter/categories/:id
+ * @access  Private/Recruiter
+ */
+export const deleteMyCategory = asyncHandler(async (req, res) => {
+    const category = await RecruiterCategory.findOneAndDelete({ _id: req.params.id, recruiterId: req.user.id });
+
+    if (!category) {
+        throw ApiError.notFound('Category mapping not found or unauthorized');
+    }
+
+    ApiResponse.success(null, 'Category mapping deleted').send(res);
+});
+
 // ==================== GET DASHBOARD STATS ====================
+
+const getJobFilterForRecruiter = async (recruiterId) => {
+    const categories = await RecruiterCategory.find({ recruiterId });
+    const orConditions = categories.map(cat => ({
+        category: cat.categoryName,
+        title: { $in: cat.selectedJobTitles }
+    }));
+    return {
+        $or: [
+            { createdByRecruiter: recruiterId },
+            ...orConditions
+        ]
+    };
+};
 
 /**
  * @desc    Get recruiter dashboard overview
@@ -65,8 +159,9 @@ export const updateProfile = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter
  */
 export const getDashboard = asyncHandler(async (req, res) => {
-    // Fetch jobs created by this recruiter
-    const myJobs = await Job.find({ createdByRecruiter: req.user.id }, '_id createdAt status');
+    // Fetch jobs for this recruiter's categories
+    const jobFilter = await getJobFilterForRecruiter(req.user.id);
+    const myJobs = await Job.find(jobFilter, '_id createdAt status');
     const myJobIds = myJobs.map(job => job._id);
 
     const totalJobs = myJobs.length;
@@ -147,6 +242,14 @@ export const createJob = asyncHandler(async (req, res) => {
         visibility: 'public'
     };
 
+    // Recruiter validation for manual job creation (if not from request)
+    if (!jobData.jobRequestId) {
+        const categoryMapping = await RecruiterCategory.findOne({ recruiterId: req.user.id, categoryName: jobData.category });
+        if (!categoryMapping || !categoryMapping.selectedJobTitles.includes(jobData.title)) {
+            throw ApiError.forbidden('You do not manage this job category and title combination');
+        }
+    }
+
     const job = await Job.create(jobData);
 
     // If this job originated from a job request, mark it as Activated
@@ -167,7 +270,7 @@ export const createJob = asyncHandler(async (req, res) => {
  */
 export const getMyJobs = asyncHandler(async (req, res) => {
     const { page, limit, skip } = buildPagination(req.query);
-    const filter = { createdByRecruiter: req.user.id };
+    const filter = await getJobFilterForRecruiter(req.user.id);
 
     if (req.query.status) {
         filter.status = req.query.status;
@@ -197,8 +300,11 @@ export const getMyJobs = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter
  */
 export const updateJob = asyncHandler(async (req, res) => {
+    const filter = await getJobFilterForRecruiter(req.user.id);
+    filter._id = req.params.id;
+
     const job = await Job.findOneAndUpdate(
-        { _id: req.params.id, createdByRecruiter: req.user.id },
+        filter,
         req.body,
         { new: true, runValidators: true }
     );
@@ -216,7 +322,10 @@ export const updateJob = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter
  */
 export const deleteJob = asyncHandler(async (req, res) => {
-    const job = await Job.findOneAndDelete({ _id: req.params.id, createdByRecruiter: req.user.id });
+    const filter = await getJobFilterForRecruiter(req.user.id);
+    filter._id = req.params.id;
+
+    const job = await Job.findOneAndDelete(filter);
 
     if (!job) {
         throw ApiError.notFound('Job not found or unauthorized');
@@ -231,7 +340,7 @@ export const deleteJob = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter
  */
 export const toggleJobStatus = asyncHandler(async (req, res) => {
-    const job = await Job.findOne({ _id: req.params.id, createdByRecruiter: req.user.id });
+    const job = await Job.findOne({ _id: req.params.id, category: { $in: req.user.categories || [] } });
 
     if (!job) {
         throw ApiError.notFound('Job not found or unauthorized');

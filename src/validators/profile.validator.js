@@ -29,4 +29,8 @@ export const updateProfileValidation = [
     body('avatar')
         .optional({ values: 'falsy' })
         .isString().withMessage('Avatar must be a string'),
+
+    body('categories')
+        .optional()
+        .isArray().withMessage('Categories must be an array of strings'),
 ];

@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { WORK_TYPES, URGENCY_LEVELS, CATEGORIES } from './JobRequest.model.js';
+import { WORK_TYPES, URGENCY_LEVELS } from './JobRequest.model.js';
 
 const jobSchema = new mongoose.Schema(
     {
@@ -12,7 +12,6 @@ const jobSchema = new mongoose.Schema(
         category: {
             type: String,
             required: [true, 'Category is required'],
-            enum: CATEGORIES,
         },
         subcategory: {
             type: String,

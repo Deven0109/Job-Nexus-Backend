@@ -1,7 +1,25 @@
 import JobRequest, { JOB_REQUEST_STATUS } from '../models/JobRequest.model.js';
 import Employer from '../models/Employer.model.js';
 import Job from '../models/Job.model.js';
+import RecruiterCategory from '../models/RecruiterCategory.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
+
+const checkRecruiterAuth = async (recruiterId, jobCategory, jobTitle) => {
+    if (!jobCategory || !jobTitle) return false;
+
+    // Find mapping with case-insensitive category name
+    const categoryMapping = await RecruiterCategory.findOne({
+        recruiterId,
+        categoryName: { $regex: new RegExp(`^${jobCategory.trim()}$`, 'i') }
+    });
+
+    if (!categoryMapping) return false;
+
+    // Case-insensitive and trimmed job title check
+    return categoryMapping.selectedJobTitles.some(
+        t => t.trim().toLowerCase() === jobTitle.trim().toLowerCase()
+    );
+};
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { buildPagination, paginationMeta } from '../utils/helpers.js';
@@ -22,7 +40,7 @@ export const createJobRequest = asyncHandler(async (req, res) => {
     }
 
     const {
-        jobTitle, jobCategory, numberOfVacancies, experienceRequired,
+        position, jobTitle, jobCategory, numberOfVacancies, experienceRequired,
         salaryMin, salaryMax, workType, country, state, city, pincode,
         requiredSkills, jobDescription, urgency
     } = req.body;
@@ -30,7 +48,7 @@ export const createJobRequest = asyncHandler(async (req, res) => {
     const jobRequest = await JobRequest.create({
         companyId: employer._id,
         createdByEmployer: req.user.id,
-        jobTitle,
+        jobTitle: jobTitle || position,   // model field is 'jobTitle'
         jobCategory,
         numberOfVacancies,
         experienceRequired,
@@ -144,10 +162,16 @@ export const updateJobRequest = asyncHandler(async (req, res) => {
         }
     });
 
+    // Support legacy 'position' field as alias for jobTitle
+    if (req.body.position !== undefined && req.body.jobTitle === undefined) {
+        jobRequest.jobTitle = req.body.position;
+    }
+
     await jobRequest.save();
 
     ApiResponse.success({ jobRequest }, 'Job request updated successfully').send(res);
 });
+
 
 // ==================== EMPLOYER: CANCEL JOB REQUEST ====================
 
@@ -188,11 +212,20 @@ export const listJobRequests = asyncHandler(async (req, res) => {
 
     let filter = {};
 
-    // Recruiters only see requests from verified employers
+    // Recruiters only see requests matching their categories AND job titles
     if (req.user.role === 'recruiter') {
-        const verifiedEmployers = await Employer.find({ verifiedByAdmin: true, status: 'approved' }).select('_id');
-        const verifiedEmployerIds = verifiedEmployers.map(e => e._id);
-        filter.companyId = { $in: verifiedEmployerIds };
+        const categories = await RecruiterCategory.find({ recruiterId: req.user.id });
+
+        if (categories.length === 0) {
+            filter._id = null; // No categories mapped, no jobs visible
+        } else {
+            // Build conditions for each managed category and its job titles
+            const orConditions = categories.map(cat => ({
+                jobCategory: { $regex: new RegExp(`^${cat.categoryName.trim()}$`, 'i') },
+                jobTitle: { $in: cat.selectedJobTitles.map(t => new RegExp(`^${t.trim()}$`, 'i')) }
+            }));
+            filter.$or = orConditions;
+        }
     }
     // Admins see everything
 
@@ -258,6 +291,13 @@ export const updateJobRequestByAdminRecruiter = asyncHandler(async (req, res, ne
         throw ApiError.notFound('Job request not found');
     }
 
+    if (req.user.role === 'recruiter') {
+        const isAuth = await checkRecruiterAuth(req.user.id, jobRequest.jobCategory, jobRequest.jobTitle);
+        if (!isAuth) {
+            throw ApiError.forbidden('You do not manage this job category and title combination');
+        }
+    }
+
     // Capture editing recruiter
     if (req.user.role === 'recruiter') {
         jobRequest.approvedByRecruiter = req.user.id;
@@ -275,13 +315,19 @@ export const updateJobRequestByAdminRecruiter = asyncHandler(async (req, res, ne
         }
     });
 
+    // Also accept legacy 'position' field as alias for jobTitle
+    if (req.body.position !== undefined && req.body.jobTitle === undefined) {
+        jobRequest.jobTitle = req.body.position;
+    }
+
     await jobRequest.save();
 
     // If the request is already active, sync the changes to the live Job document
     if (jobRequest.status === 'active') {
         const liveJob = await Job.findOne({ jobRequestId: jobRequest._id });
         if (liveJob) {
-            if (req.body.jobTitle !== undefined) liveJob.title = req.body.jobTitle;
+            const incomingTitle = req.body.jobTitle || req.body.position;
+            if (incomingTitle !== undefined) liveJob.title = incomingTitle;
             if (req.body.jobCategory !== undefined) liveJob.category = req.body.jobCategory;
             if (req.body.numberOfVacancies !== undefined) liveJob.vacancies = req.body.numberOfVacancies;
             if (req.body.experienceRequired !== undefined) liveJob.experience = req.body.experienceRequired;
@@ -320,6 +366,13 @@ export const approveJobRequest = asyncHandler(async (req, res) => {
         throw ApiError.badRequest('Only pending requests can be approved');
     }
 
+    if (req.user.role === 'recruiter') {
+        const isAuth = await checkRecruiterAuth(req.user.id, jobRequest.jobCategory, jobRequest.jobTitle);
+        if (!isAuth) {
+            throw ApiError.forbidden('You do not manage this job category and title combination');
+        }
+    }
+
     jobRequest.status = JOB_REQUEST_STATUS.APPROVED;
     jobRequest.approvedByRecruiter = req.user.id;
     await jobRequest.save();
@@ -343,6 +396,13 @@ export const rejectJobRequest = asyncHandler(async (req, res) => {
 
     if (jobRequest.status !== JOB_REQUEST_STATUS.PENDING) {
         throw ApiError.badRequest('Only pending requests can be rejected');
+    }
+
+    if (req.user.role === 'recruiter') {
+        const isAuth = await checkRecruiterAuth(req.user.id, jobRequest.jobCategory, jobRequest.jobTitle);
+        if (!isAuth) {
+            throw ApiError.forbidden('You do not manage this job category and title combination');
+        }
     }
 
     jobRequest.status = JOB_REQUEST_STATUS.REJECTED;
@@ -369,9 +429,16 @@ export const activateJob = asyncHandler(async (req, res) => {
         throw ApiError.badRequest('Only approved requests can be activated');
     }
 
+    if (req.user.role === 'recruiter') {
+        const isAuth = await checkRecruiterAuth(req.user.id, jobRequest.jobCategory, jobRequest.jobTitle);
+        if (!isAuth) {
+            throw ApiError.forbidden('You do not manage this job category and title combination');
+        }
+    }
+
     // Auto-create the actual Job
     const newJob = await Job.create({
-        title: jobRequest.jobTitle,
+        title: jobRequest.jobTitle,           // Job model uses 'title'
         category: jobRequest.jobCategory,
         vacancies: jobRequest.numberOfVacancies,
         experience: jobRequest.experienceRequired,
@@ -415,6 +482,13 @@ export const toggleJobStatus = asyncHandler(async (req, res) => {
 
     if (jobRequest.status !== JOB_REQUEST_STATUS.ACTIVE && jobRequest.status !== JOB_REQUEST_STATUS.INACTIVE) {
         throw ApiError.badRequest('Only activated jobs can have their status toggled');
+    }
+
+    if (req.user.role === 'recruiter') {
+        const isAuth = await checkRecruiterAuth(req.user.id, jobRequest.jobCategory, jobRequest.jobTitle);
+        if (!isAuth) {
+            throw ApiError.forbidden('You do not manage this job category and title combination');
+        }
     }
 
     // Toggle status

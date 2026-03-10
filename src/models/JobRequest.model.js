@@ -11,29 +11,6 @@ const JOB_REQUEST_STATUS = {
 const WORK_TYPES = ['Remote', 'Hybrid', 'Onsite'];
 const URGENCY_LEVELS = ['Low', 'Medium', 'High'];
 
-const CATEGORIES = [
-    'Programming',
-    'Data Science',
-    'Designing',
-    'Networking',
-    'Management',
-    'Marketing',
-    'Cybersecurity',
-    'Information Technology',
-    'Healthcare',
-    'Finance & Banking',
-    'Education',
-    'Manufacturing',
-    'Sales',
-    'Human Resources',
-    'Engineering',
-    'Design',
-    'Customer Service',
-    'Legal',
-    'Accounting',
-    'Operations',
-    'Other',
-];
 
 const jobRequestSchema = new mongoose.Schema(
     {
@@ -56,7 +33,6 @@ const jobRequestSchema = new mongoose.Schema(
         jobCategory: {
             type: String,
             required: [true, 'Category is required'],
-            enum: CATEGORIES,
         },
         numberOfVacancies: {
             type: Number,
@@ -163,5 +139,6 @@ jobRequestSchema.index({ createdAt: -1 });
 
 const JobRequest = mongoose.model('JobRequest', jobRequestSchema);
 
-export { JOB_REQUEST_STATUS, WORK_TYPES, URGENCY_LEVELS, CATEGORIES };
+export { JOB_REQUEST_STATUS, WORK_TYPES, URGENCY_LEVELS };
+
 export default JobRequest;

@@ -2,6 +2,7 @@ import Application from '../models/Application.model.js';
 import Job from '../models/Job.model.js';
 import Candidate from '../models/Candidate.model.js';
 import Employer from '../models/Employer.model.js';
+import RecruiterCategory from '../models/RecruiterCategory.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
 import ApiError from '../utils/ApiError.js';
@@ -81,6 +82,19 @@ export const getMyApplications = asyncHandler(async (req, res) => {
  */
 export const getJobApplications = asyncHandler(async (req, res) => {
     const { jobId } = req.params;
+
+    const job = await Job.findById(jobId);
+    if (!job) throw ApiError.notFound('Job not found');
+
+    if (req.user.role === USER_ROLES.RECRUITER) {
+        if (job.createdByRecruiter.toString() !== req.user.id.toString()) {
+            const categoryMapping = await RecruiterCategory.findOne({ recruiterId: req.user.id, categoryName: job.category });
+            if (!categoryMapping || !categoryMapping.selectedJobTitles.includes(job.title)) {
+                throw ApiError.forbidden('You do not manage this job');
+            }
+        }
+    }
+
     const applications = await Application.find({ job: jobId })
         .populate({
             path: 'candidate',
@@ -310,6 +324,15 @@ export const getPipeline = asyncHandler(async (req, res) => {
 
     const job = await Job.findById(jobId);
     if (!job) throw ApiError.notFound('Job not found');
+
+    if (req.user.role === USER_ROLES.RECRUITER) {
+        if (job.createdByRecruiter.toString() !== req.user.id.toString()) {
+            const categoryMapping = await RecruiterCategory.findOne({ recruiterId: req.user.id, categoryName: job.category });
+            if (!categoryMapping || !categoryMapping.selectedJobTitles.includes(job.title)) {
+                throw ApiError.forbidden('You do not manage this job');
+            }
+        }
+    }
 
     // Security: Employer can only see their own job pipelines
     if (req.user.role === USER_ROLES.EMPLOYER) {

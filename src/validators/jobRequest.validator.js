@@ -2,9 +2,16 @@ import { body } from 'express-validator';
 
 export const createJobRequestValidation = [
     body('jobTitle')
-        .trim()
-        .notEmpty().withMessage('Job title is required')
-        .isLength({ max: 200 }).withMessage('Title cannot exceed 200 characters'),
+        .custom((value, { req }) => {
+            const val = value || req.body.position;
+            if (!val || !String(val).trim()) {
+                throw new Error('Job title is required');
+            }
+            if (String(val).trim().length > 200) {
+                throw new Error('Job title cannot exceed 200 characters');
+            }
+            return true;
+        }),
 
     body('jobCategory')
         .trim()
@@ -71,7 +78,13 @@ export const updateJobRequestValidation = [
         .optional()
         .trim()
         .notEmpty().withMessage('Job title cannot be empty')
-        .isLength({ max: 200 }).withMessage('Title cannot exceed 200 characters'),
+        .isLength({ max: 200 }).withMessage('Job title cannot exceed 200 characters'),
+
+    body('position')
+        .optional()
+        .trim()
+        .notEmpty().withMessage('Position cannot be empty')
+        .isLength({ max: 200 }).withMessage('Position cannot exceed 200 characters'),
 
     body('jobCategory')
         .optional()

@@ -1,4 +1,7 @@
 import Job from '../models/Job.model.js';
+import User from '../models/User.model.js';
+import Application from '../models/Application.model.js';
+import RecruiterCategory from '../models/RecruiterCategory.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { buildPagination, paginationMeta } from '../utils/helpers.js';
@@ -59,24 +62,7 @@ export const getJobs = asyncHandler(async (req, res) => {
         const cats = req.query.categories.split(',').map(c => new RegExp(`^${c.trim()}$`, 'i'));
         filter.category = { $in: cats };
     } else if (req.query.category) {
-        const category = req.query.category;
-        if (category === "Programming") {
-            filter.title = { $regex: "developer|engineer|software|mern|react|node|java|python|flutter", $options: "i" };
-        } else if (category === "Data Science") {
-            filter.title = { $regex: "data|machine learning|ai|analytics|ml", $options: "i" };
-        } else if (category === "Designing") {
-            filter.title = { $regex: "designer|ui|ux|graphic|product", $options: "i" };
-        } else if (category === "Networking") {
-            filter.title = { $regex: "network|system|cloud|it support", $options: "i" };
-        } else if (category === "Management") {
-            filter.title = { $regex: "manager|management|operations|hr", $options: "i" };
-        } else if (category === "Marketing") {
-            filter.title = { $regex: "marketing|seo|social media|content", $options: "i" };
-        } else if (category === "Cybersecurity") {
-            filter.title = { $regex: "security|cyber|hacker|penetration|soc", $options: "i" };
-        } else {
-            filter.category = new RegExp(`^${category}$`, 'i');
-        }
+        filter.category = new RegExp(`^${req.query.category}$`, 'i');
     }
 
     if (req.query.skills) {
@@ -145,4 +131,45 @@ export const getJobById = asyncHandler(async (req, res) => {
     }
 
     ApiResponse.success({ job }, 'Job details retrieved').send(res);
+});
+
+/**
+ * @desc    Get top 5 popular job categories
+ * @route   GET /api/jobs/popular-categories
+ * @access  Public
+ */
+export const getPopularCategories = asyncHandler(async (req, res) => {
+    const popular = await Application.aggregate([
+        {
+            $lookup: {
+                from: 'jobs',
+                localField: 'job',
+                foreignField: '_id',
+                as: 'jobData'
+            }
+        },
+        { $unwind: '$jobData' },
+        {
+            $group: {
+                _id: '$jobData.category',
+                total_applications: { $sum: 1 }
+            }
+        },
+        { $sort: { total_applications: -1 } },
+        { $limit: 5 }
+    ]);
+
+    const result = popular.map(p => ({ category: p._id, applications: p.total_applications }));
+    ApiResponse.success(result, 'Popular categories retrieved').send(res);
+});
+
+/**
+ * @desc    Get available categories handled by at least 1 recruiter
+ * @route   GET /api/jobs/available-categories
+ * @access  Public
+ */
+export const getAvailableCategories = asyncHandler(async (req, res) => {
+    // Ensure we only return categories that have active recruiter mappings
+    const mappings = await RecruiterCategory.find({}).distinct('categoryName');
+    ApiResponse.success(mappings, 'Available categories retrieved').send(res);
 });

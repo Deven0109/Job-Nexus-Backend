@@ -46,6 +46,7 @@ const auth = asyncHandler(async (req, res, next) => {
             role: user.role,
             firstName: user.firstName,
             lastName: user.lastName,
+            categories: user.categories || [],
         };
 
         next();

@@ -2,6 +2,7 @@ import Category from '../models/Category.model.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import ApiError from '../utils/ApiError.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { masterCategories } from '../utils/categoriesList.js';
 
 /**
  * @desc Get all categories (with filtering for public/admin)
@@ -19,6 +20,15 @@ export const getAllCategories = asyncHandler(async (req, res) => {
     const categories = await Category.find(query).sort({ name: 1 });
 
     ApiResponse.success(categories, 'Categories fetched successfully').send(res);
+});
+
+/**
+ * @desc Get master list of categories and their respective job titles
+ * @route GET /api/categories/master
+ * @access Public/Private
+ */
+export const getMasterCategories = asyncHandler(async (req, res) => {
+    ApiResponse.success(masterCategories, 'Master categories fetched successfully').send(res);
 });
 
 /**

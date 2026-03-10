@@ -9,6 +9,10 @@ import {
     updateJob,
     deleteJob,
     toggleJobStatus,
+    getMyCategories,
+    addMyCategory,
+    updateMyCategory,
+    deleteMyCategory,
 } from '../controllers/recruiter.controller.js';
 import { updateProfileValidation } from '../validators/profile.validator.js';
 import { createJobValidation } from '../validators/job.validator.js';
@@ -38,6 +42,13 @@ router.put('/profile', updateProfileValidation, validate, updateProfile);
 
 // GET /api/recruiter/candidates — List candidates for pipeline
 router.get('/candidates', listCandidates);
+
+// ==================== CATEGORIES ====================
+
+router.get('/categories', getMyCategories);
+router.post('/categories', addMyCategory);
+router.put('/categories/:id', updateMyCategory);
+router.delete('/categories/:id', deleteMyCategory);
 
 // ==================== JOBS ====================
 

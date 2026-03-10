@@ -40,6 +40,10 @@ const userSchema = new mongoose.Schema(
             },
             default: USER_ROLES.CANDIDATE,
         },
+        categories: {
+            type: [String],
+            default: [],
+        },
         phone: {
             type: String,
             required: [true, 'Phone number is required'],
@@ -178,6 +182,7 @@ userSchema.methods.getPublicProfile = function () {
         lastName: this.lastName,
         email: this.email,
         role: this.role,
+        categories: this.categories,
         phone: this.phone,
         avatar: this.avatar,
         isActive: this.isActive,

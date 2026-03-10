@@ -1,6 +1,7 @@
 import express from 'express';
 import {
     getAllCategories,
+    getMasterCategories,
     createCategory,
     updateCategory,
     deleteCategory
@@ -15,6 +16,7 @@ const router = express.Router();
  * @access  Public (Filterable by visibility)
  */
 router.get('/', getAllCategories);
+router.get('/master', getMasterCategories);
 
 /**
  * Protected routes - Recruiter and Admin only
