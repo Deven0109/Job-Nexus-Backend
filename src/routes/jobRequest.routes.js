@@ -14,9 +14,9 @@ import {
     updateJobRequestByAdminRecruiter
 } from '../controllers/jobRequest.controller.js';
 import { createJobRequestValidation, updateJobRequestValidation } from '../validators/jobRequest.validator.js';
-import validate from '../middleware/validate.js';
-import auth from '../middleware/auth.js';
-import authorize from '../middleware/rbac.js';
+import validate from '../middlewares/validate.js';
+import auth from '../middlewares/auth.js';
+import authorize from '../middlewares/rbac.js';
 
 const router = Router();
 

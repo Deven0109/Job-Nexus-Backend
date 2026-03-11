@@ -11,8 +11,8 @@ const __dirname = path.dirname(__filename);
 
 // Custom NoSQL injection sanitizer (express-mongo-sanitize is incompatible with Express 5)
 import config from './config/env.js';
-import errorHandler from './middleware/errorHandler.js';
-import { apiLimiter } from './middleware/rateLimiter.js';
+import errorHandler from './middlewares/errorHandler.js';
+import { apiLimiter } from './middlewares/rateLimiter.js';
 import ApiError from './utils/ApiError.js';
 
 // Import route files
@@ -135,6 +135,16 @@ app.use('/api/applications', applicationRoutes);
 // app.use('/api/reports', reportRoutes);
 
 // ==================== 404 HANDLER ====================
+
+// Serve frontend static files
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Fallback for SPA (HashRouter uses index.html as anchor)
+app.get('/*any', (req, res, next) => {
+    // If it's an API route, let it fall through to 404
+    if (req.url.startsWith('/api')) return next();
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+});
 
 app.use((req, res, next) => {
     next(ApiError.notFound(`Route ${req.originalUrl} not found`));

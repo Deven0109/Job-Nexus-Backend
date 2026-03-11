@@ -79,6 +79,8 @@ export const createJobRequest = asyncHandler(async (req, res) => {
  * @access  Private/Employer
  */
 export const getMyJobRequests = asyncHandler(async (req, res) => {
+    // Override limit to 6 for employer's job requests module pagination
+    req.query.limit = req.query.limit || 6;
     const { page, limit, skip } = buildPagination(req.query);
 
     const filter = { createdByEmployer: req.user.id };

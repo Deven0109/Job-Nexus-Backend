@@ -18,9 +18,9 @@ import {
     loginValidation,
     changePasswordValidation,
 } from '../validators/auth.validator.js';
-import validate from '../middleware/validate.js';
-import auth from '../middleware/auth.js';
-import { authLimiter } from '../middleware/rateLimiter.js';
+import validate from '../middlewares/validate.js';
+import auth from '../middlewares/auth.js';
+import { authLimiter } from '../middlewares/rateLimiter.js';
 
 const router = Router();
 

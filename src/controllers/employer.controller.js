@@ -128,10 +128,27 @@ export const getActiveJobs = asyncHandler(async (req, res) => {
         throw ApiError.notFound('Employer profile not found');
     }
 
-    const jobs = await Job.find({ companyId: employerProfile._id })
-        .sort({ createdAt: -1 });
+    const { page = 1, limit = 5 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    ApiResponse.success({ jobs }, 'Active jobs retrieved').send(res);
+    const jobs = await Job.find({ companyId: employerProfile._id })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit));
+
+    const total = await Job.countDocuments({ companyId: employerProfile._id });
+
+    ApiResponse.success({
+        jobs,
+        pagination: {
+            total,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            totalPages: Math.ceil(total / limit),
+            hasNextPage: skip + parseInt(limit) < total,
+            hasPrevPage: parseInt(page) > 1,
+        }
+    }, 'Active jobs retrieved').send(res);
 });
 
 /**

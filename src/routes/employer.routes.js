@@ -11,9 +11,9 @@ import {
 import { updateProfileValidation } from '../validators/profile.validator.js';
 import { createJobRequestValidation, updateJobRequestValidation } from '../validators/jobRequest.validator.js';
 import { createJobRequest, getMyJobRequests, getMyJobRequestById, updateJobRequest, cancelJobRequest } from '../controllers/jobRequest.controller.js';
-import validate from '../middleware/validate.js';
-import auth from '../middleware/auth.js';
-import authorize from '../middleware/rbac.js';
+import validate from '../middlewares/validate.js';
+import auth from '../middlewares/auth.js';
+import authorize from '../middlewares/rbac.js';
 
 const router = Router();
 

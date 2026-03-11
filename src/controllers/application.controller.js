@@ -255,17 +255,26 @@ export const finalReject = asyncHandler(async (req, res) => {
  */
 export const getEmployerShortlisted = asyncHandler(async (req, res) => {
     const { jobId } = req.params;
+    const { page = 1, limit = 6 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const applications = await Application.find({
+    const matchQuery = {
         job: jobId,
         status: APPLICATION_STATUS.RECRUITER_SHORTLISTED
-    }).populate({
-        path: 'candidate',
-        select: 'firstName lastName email avatar phone',
-    }).populate({
-        path: 'job',
-        select: 'title location city state country'
-    });
+    };
+
+    const total = await Application.countDocuments(matchQuery);
+
+    const applications = await Application.find(matchQuery)
+        .populate({
+            path: 'candidate',
+            select: 'firstName lastName email avatar phone',
+        }).populate({
+            path: 'job',
+            select: 'title location city state country'
+        })
+        .skip(skip)
+        .limit(parseInt(limit));
 
     const enrichedApplications = await Promise.all(applications.map(async (app) => {
         const profile = await Candidate.findOne({ user: app.candidate._id }).select('resumeUrl summary skills experience education');
@@ -275,7 +284,17 @@ export const getEmployerShortlisted = asyncHandler(async (req, res) => {
         };
     }));
 
-    ApiResponse.success(enrichedApplications, 'Shortlisted candidates retrieved').send(res);
+    ApiResponse.success({
+        applications: enrichedApplications,
+        pagination: {
+            total,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            totalPages: Math.ceil(total / parseInt(limit)),
+            hasNextPage: skip + parseInt(limit) < total,
+            hasPrevPage: parseInt(page) > 1,
+        }
+    }, 'Shortlisted candidates retrieved').send(res);
 });
 
 /**

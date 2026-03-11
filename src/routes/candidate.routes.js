@@ -6,10 +6,10 @@ import {
     parseResume
 } from '../controllers/candidate.controller.js';
 import { updateProfileValidation } from '../validators/profile.validator.js';
-import validate from '../middleware/validate.js';
-import auth from '../middleware/auth.js';
-import authorize from '../middleware/rbac.js';
-import { uploadResumeMemory } from '../middleware/upload.js';
+import validate from '../middlewares/validate.js';
+import auth from '../middlewares/auth.js';
+import authorize from '../middlewares/rbac.js';
+import { uploadResumeMemory } from '../middlewares/upload.js';
 
 const router = Router();
 

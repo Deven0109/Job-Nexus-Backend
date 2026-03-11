@@ -140,18 +140,39 @@ export const deleteMyCategory = asyncHandler(async (req, res) => {
 // ==================== GET DASHBOARD STATS ====================
 
 const getJobFilterForRecruiter = async (recruiterId) => {
-    const categories = await RecruiterCategory.find({ recruiterId });
-    const orConditions = categories.map(cat => ({
-        category: cat.categoryName,
-        title: { $in: cat.selectedJobTitles }
-    }));
-    return {
-        $or: [
-            { createdByRecruiter: recruiterId },
-            ...orConditions
-        ]
-    };
+    try {
+        const categories = await RecruiterCategory.find({ recruiterId }).lean();
+        const orConditions = (categories || [])
+            .filter(cat => cat.categoryName && Array.isArray(cat.selectedJobTitles))
+            .map(cat => ({
+                category: cat.categoryName,
+                title: { $in: cat.selectedJobTitles }
+            }));
+
+        if (orConditions.length === 0) {
+            return { createdByRecruiter: recruiterId };
+        }
+
+        return {
+            $or: [
+                { createdByRecruiter: recruiterId },
+                ...orConditions
+            ]
+        };
+    } catch (error) {
+        console.error('Error in getJobFilterForRecruiter:', error);
+        return { createdByRecruiter: recruiterId };
+    }
 };
+
+const SHORTLISTED_STATUSES = [
+    APPLICATION_STATUS.RECRUITER_SHORTLISTED,
+    APPLICATION_STATUS.EMPLOYER_SHORTLISTED,
+    APPLICATION_STATUS.INTERVIEW_SCHEDULED,
+    APPLICATION_STATUS.INTERVIEW_COMPLETED,
+    APPLICATION_STATUS.SELECTED_NEXT_ROUND,
+    APPLICATION_STATUS.FINAL_SELECTED
+];
 
 /**
  * @desc    Get recruiter dashboard overview
@@ -161,55 +182,67 @@ const getJobFilterForRecruiter = async (recruiterId) => {
 export const getDashboard = asyncHandler(async (req, res) => {
     // Fetch jobs for this recruiter's categories
     const jobFilter = await getJobFilterForRecruiter(req.user.id);
-    const myJobs = await Job.find(jobFilter, '_id createdAt status');
+    const myJobs = await Job.find(jobFilter, '_id createdAt status').lean();
     const myJobIds = myJobs.map(job => job._id);
 
-    const totalJobs = myJobs.length;
-    const activeJobs = myJobs.filter(job => job.status === 'active').length;
+    // If no jobs found, return early with zeros
+    if (myJobs.length === 0) {
+        return ApiResponse.success({
+            stats: {
+                totalJobs: 0,
+                activeJobs: 0,
+                totalApplications: 0,
+                shortlistedCount: 0,
+                jobDates: [],
+                applicationDates: [],
+                recentActivity: []
+            }
+        }, 'Dashboard data retrieved (Empty)').send(res);
+    }
 
-    // Fetch all applications for these jobs
-    const allApps = await Application.find({ job: { $in: myJobIds } })
-        .populate('job', 'title')
-        .populate('candidate', 'firstName lastName avatar')
-        .sort({ createdAt: -1 });
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
 
-    const totalApplications = allApps.length;
+    const [totalApplications, shortlistedCount, recentApps, applicationDatesRaw] = await Promise.all([
+        Application.countDocuments({ job: { $in: myJobIds } }),
+        Application.countDocuments({ 
+            job: { $in: myJobIds }, 
+            status: { $in: SHORTLISTED_STATUSES } 
+        }),
+        Application.find({ job: { $in: myJobIds } })
+            .populate('job', 'title')
+            .populate('candidate', 'firstName lastName avatar')
+            .sort({ createdAt: -1 })
+            .limit(10)
+            .lean(),
+        Application.find(
+            { 
+                job: { $in: myJobIds },
+                createdAt: { $gt: twelveMonthsAgo }
+            }, 
+            'createdAt'
+        ).lean()
+    ]);
 
-    // Define shortlisted statuses (including interview and selected stages)
-    const shortlistedStatuses = [
-        APPLICATION_STATUS.RECRUITER_SHORTLISTED,
-        APPLICATION_STATUS.EMPLOYER_SHORTLISTED,
-        APPLICATION_STATUS.INTERVIEW_SCHEDULED,
-        APPLICATION_STATUS.INTERVIEW_COMPLETED,
-        APPLICATION_STATUS.SELECTED_NEXT_ROUND,
-        APPLICATION_STATUS.FINAL_SELECTED
-    ];
+    const activeJobs = (myJobs || []).filter(job => job.status === 'active').length;
 
-    // Count applications in any of the shortlisted/advanced stages
-    const shortlistedCount = allApps.filter(app => shortlistedStatuses.includes(app.status)).length;
-
-    // Send raw dates for frontend Week/Month/Year chart grouping
-    const jobDates = myJobs.map(job => job.createdAt);
-    const applicationDates = allApps.map(app => app.createdAt);
-
-    // Recent activity (latest 10 applications for frontend queue)
-    const recentActivity = allApps.slice(0, 10).map(app => ({
+    const recentActivity = (recentApps || []).map(app => ({
         id: app._id,
-        candidateName: `${app.candidate?.firstName} ${app.candidate?.lastName}`,
-        jobTitle: app.job?.title,
+        candidateName: `${app.candidate?.firstName || 'Unknown'} ${app.candidate?.lastName || ''}`,
+        jobTitle: app.job?.title || 'Unknown Job',
         jobId: app.job?._id,
-        action: `applied for ${app.job?.title}`,
+        action: `applied for ${app.job?.title || 'job'}`,
         avatar: app.candidate?.avatar,
-        time: app.createdAt
+        time: app.createdAt || new Date()
     }));
 
     const stats = {
-        totalJobs,
+        totalJobs: (myJobs || []).length,
         activeJobs,
-        totalApplications,
-        shortlistedCount,
-        jobDates,
-        applicationDates,
+        totalApplications: totalApplications || 0,
+        shortlistedCount: shortlistedCount || 0,
+        jobDates: (myJobs || []).map(j => j.createdAt).filter(Boolean),
+        applicationDates: (applicationDatesRaw || []).map(a => a.createdAt).filter(Boolean),
         recentActivity
     };
 
@@ -276,13 +309,34 @@ export const getMyJobs = asyncHandler(async (req, res) => {
         filter.status = req.query.status;
     }
 
+    let finalFilter = filter;
+
+    if (req.query.search) {
+        const searchRegex = new RegExp(req.query.search, 'i');
+        finalFilter = {
+            $and: [
+                filter,
+                {
+                    $or: [
+                        { title: searchRegex },
+                        { city: searchRegex },
+                        { location: searchRegex },
+                        { state: searchRegex }
+                    ]
+                }
+            ]
+        };
+    }
+
+    const sortOrder = req.query.sortBy === 'oldest' ? 1 : -1;
+
     const [jobs, total] = await Promise.all([
-        Job.find(filter)
-            .sort({ createdAt: -1 })
+        Job.find(finalFilter)
+            .sort({ createdAt: sortOrder })
             .skip(skip)
             .limit(limit)
             .populate('companyId', 'companyName companyEmail'),
-        Job.countDocuments(filter)
+        Job.countDocuments(finalFilter)
     ]);
 
     ApiResponse.success(

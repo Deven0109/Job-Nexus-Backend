@@ -6,8 +6,8 @@ import {
     updateCategory,
     deleteCategory
 } from '../controllers/category.controller.js';
-import auth from '../middleware/auth.js';
-import authorize from '../middleware/rbac.js';
+import auth from '../middlewares/auth.js';
+import authorize from '../middlewares/rbac.js';
 
 const router = express.Router();
 

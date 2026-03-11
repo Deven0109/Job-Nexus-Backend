@@ -1,7 +1,7 @@
 import express from 'express';
 import * as applicationController from '../controllers/application.controller.js';
-import auth from '../middleware/auth.js';
-import authorize from '../middleware/rbac.js';
+import auth from '../middlewares/auth.js';
+import authorize from '../middlewares/rbac.js';
 import { USER_ROLES } from '../utils/constants.js';
 
 const router = express.Router();
