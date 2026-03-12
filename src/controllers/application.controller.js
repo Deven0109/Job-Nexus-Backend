@@ -65,7 +65,7 @@ export const getMyApplications = asyncHandler(async (req, res) => {
     const applications = await Application.find({ candidate: req.user.id })
         .populate({
             path: 'job',
-            select: 'title location city state country workType experience salaryMin salaryMax companyId',
+            select: 'title location city state country workType experience salaryMin salaryMax currency companyId',
             populate: { path: 'companyId', select: 'companyName' }
         })
         .sort({ createdAt: -1 });

@@ -5,6 +5,8 @@ import RecruiterCategory from '../models/RecruiterCategory.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { buildPagination, paginationMeta } from '../utils/helpers.js';
+import { masterCategories } from '../utils/categoriesList.js';
+
 
 /**
  * @desc    Get all public jobs with filters
@@ -93,6 +95,7 @@ export const getJobs = asyncHandler(async (req, res) => {
     }
 
     if (req.query.workType) filter.workType = req.query.workType;
+    if (req.query.currency) filter.currency = req.query.currency;
 
     const [jobs, total] = await Promise.all([
         Job.find(filter)
@@ -134,11 +137,12 @@ export const getJobById = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Get top 5 popular job categories
+ * @desc    Get top 5 popular job categories (by most applications)
  * @route   GET /api/jobs/popular-categories
  * @access  Public
  */
 export const getPopularCategories = asyncHandler(async (req, res) => {
+    // Top 5 categories where candidates applied the most
     const popular = await Application.aggregate([
         {
             $lookup: {
@@ -149,27 +153,66 @@ export const getPopularCategories = asyncHandler(async (req, res) => {
             }
         },
         { $unwind: '$jobData' },
+        { $match: { 'jobData.category': { $nin: [null, ''] } } },
         {
             $group: {
                 _id: '$jobData.category',
-                total_applications: { $sum: 1 }
+                applicationCount: { $sum: 1 }
             }
         },
-        { $sort: { total_applications: -1 } },
+        { $sort: { applicationCount: -1 } },
         { $limit: 5 }
     ]);
 
-    const result = popular.map(p => ({ category: p._id, applications: p.total_applications }));
+    // Also get active job count per category for each popular one
+    const categoryNames = popular.map(p => p._id);
+    const jobCounts = await Job.aggregate([
+        { $match: { status: 'active', visibility: 'public', category: { $in: categoryNames } } },
+        { $group: { _id: '$category', jobCount: { $sum: 1 } } }
+    ]);
+    const jobCountMap = {};
+    jobCounts.forEach(j => { jobCountMap[j._id] = j.jobCount; });
+
+    const result = popular.map(p => ({
+        category: p._id,
+        applicationCount: p.applicationCount,
+        jobCount: jobCountMap[p._id] || 0
+    }));
     ApiResponse.success(result, 'Popular categories retrieved').send(res);
 });
 
 /**
- * @desc    Get available categories handled by at least 1 recruiter
+ * @desc    Get available categories with job counts
  * @route   GET /api/jobs/available-categories
  * @access  Public
  */
 export const getAvailableCategories = asyncHandler(async (req, res) => {
-    // Ensure we only return categories that have active recruiter mappings
-    const mappings = await RecruiterCategory.find({}).distinct('categoryName');
-    ApiResponse.success(mappings, 'Available categories retrieved').send(res);
+    // Return ALL categories from the master list so candidates can see the full search space
+    const categories = Object.keys(masterCategories);
+
+    // Get job counts per category (only for active public jobs)
+    const jobCounts = await Job.aggregate([
+        { $match: { status: 'active', visibility: 'public' } },
+        { $group: { _id: '$category', jobCount: { $sum: 1 } } }
+    ]);
+
+    const countMap = {};
+    jobCounts.forEach(j => {
+        if (j._id) {
+            countMap[j._id] = j.jobCount;
+        }
+    });
+
+    const result = categories.map(cat => ({
+        name: cat,
+        jobCount: countMap[cat] || 0
+    }));
+
+    // Optionally sort: most jobs first, then alphabetically
+    result.sort((a, b) => {
+        if (b.jobCount !== a.jobCount) return b.jobCount - a.jobCount;
+        return a.name.localeCompare(b.name);
+    });
+
+    ApiResponse.success(result, 'Available categories retrieved').send(res);
 });
