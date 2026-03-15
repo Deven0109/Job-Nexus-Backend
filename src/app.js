@@ -24,6 +24,8 @@ import employerRoutes from './routes/employer.routes.js';
 import jobRequestRoutes from './routes/jobRequest.routes.js';
 import categoryRoutes from './routes/category.routes.js';
 import applicationRoutes from './routes/application.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
+import faqRoutes from './routes/faq.routes.js';
 
 
 const app = express();
@@ -125,13 +127,14 @@ app.use('/api/job-requests', jobRequestRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/applications', applicationRoutes);
+app.use('/api/faqs', faqRoutes);
 
 
 // Future route modules:
 // app.use('/api/applications', applicationRoutes);
 // app.use('/api/interviews', interviewRoutes);
 // app.use('/api/offers', offerRoutes);
-// app.use('/api/notifications', notificationRoutes);
+app.use('/api/notifications', notificationRoutes);
 // app.use('/api/reports', reportRoutes);
 
 // ==================== 404 HANDLER ====================

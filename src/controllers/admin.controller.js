@@ -7,7 +7,9 @@ import asyncHandler from '../utils/asyncHandler.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { buildPagination, paginationMeta, buildSort, cleanObject } from '../utils/helpers.js';
-import { USER_ROLES, APPLICATION_STATUS } from '../utils/constants.js';
+import sendEmail from '../utils/email.js';
+import { USER_ROLES, APPLICATION_STATUS, NOTIFICATION_TYPES } from '../utils/constants.js';
+import { createNotification } from '../services/notification.service.js';
 
 // ==================== DASHBOARD STATS ====================
 
@@ -71,7 +73,7 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(5)
             .select('firstName lastName email role isActive createdAt'),
-        Job.countDocuments(),
+        Job.countDocuments({ status: 'active' }),
         Application.countDocuments(),
         Application.countDocuments({ status: APPLICATION_STATUS.SHORTLISTED }),
         Application.find()
@@ -258,56 +260,84 @@ export const getUserById = asyncHandler(async (req, res) => {
  * @access  Private/Admin
  */
 export const createUser = asyncHandler(async (req, res) => {
-    const { firstName, lastName, email, password, role, phone } = req.body;
+    const {
+        firstName, lastName, email, password, role, phone,
+        // Optional Employer fields
+        companyName, industry, companyLocation, companyEmail, companyWebsite, companySize, companyDescription
+    } = req.body;
+
+    const normalizedRole = (role || USER_ROLES.CANDIDATE).toLowerCase();
+    const normalizedEmail = (email || '').trim().toLowerCase();
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
-        throw ApiError.conflict('An account with this email already exists');
+        throw ApiError.conflict(`An account with this email already exists as a ${existingUser.role}`);
     }
 
     // Create user (password is hashed via pre-save hook)
-    const user = await User.create(
-        cleanObject({
-            firstName,
-            lastName,
-            email,
-            password,
-            role,
-            phone,
-        })
-    );
+    const user = await User.create({
+        firstName,
+        lastName,
+        email: normalizedEmail,
+        password,
+        role: normalizedRole,
+        phone,
+    });
 
     // ========== ROLE-SPECIFIC PROFILE CREATION ==========
-    if (role === USER_ROLES.CANDIDATE) {
-        await Candidate.create({
-            user: user._id,
-            firstName: user.firstName,
-            lastName: user.lastName,
+    try {
+        if (normalizedRole === USER_ROLES.CANDIDATE) {
+            await Candidate.create({
+                user: user._id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phone: user.phone,
+                skills: [],
+                experience: [],
+                education: []
+            });
+            console.log('Candidate profile created by Admin for:', normalizedEmail);
+        } else if (normalizedRole === USER_ROLES.EMPLOYER) {
+            await Employer.create({
+                userId: user._id,
+                companyName: companyName || `${firstName}'s Company`,
+                companyEmail: companyEmail || user.email,
+                companyWebsite: companyWebsite || '',
+                companyDescription: companyDescription || '',
+                companyLocation: companyLocation || 'Not Specified',
+                companySize: companySize || '1-10',
+                industry: industry || 'Not Specified',
+                contactPersonName: user.firstName + (user.lastName ? ' ' + user.lastName : ''),
+                contactPersonEmail: user.email,
+                contactPersonPhone: user.phone,
+                status: 'approved', // Admin created employers are auto-approved
+                verifiedByAdmin: true
+            });
+            console.log('Employer profile created by Admin for:', normalizedEmail);
+        }
+    } catch (profileError) {
+        console.error('Profile creation failed, rolling back user registration:', profileError);
+        // Delete user if profile fails
+        await User.findByIdAndDelete(user._id);
+        throw profileError;
+    }
+
+    // Send Welcome Email (just like registration)
+    try {
+        await sendEmail({
             email: user.email,
-            phone: user.phone,
-            skills: [],
-            experience: [],
-            education: []
+            subject: 'Account Created - Job Consultancy Platform',
+            message: `Hello ${user.firstName},\n\nYour account has been created by an administrator as a ${user.role}.\n\nYou can now log in using this email address.\n\nBest regards,\nJob Consultancy Team`,
         });
-        console.log('Candidate profile created by Admin for:', email);
-    } else if (role === USER_ROLES.EMPLOYER) {
-        await Employer.create({
-            userId: user._id,
-            contactPersonName: user.firstName + (user.lastName ? ' ' + user.lastName : ''),
-            contactPersonEmail: user.email,
-            contactPersonPhone: user.phone,
-            companyName: `${firstName}'s Company`,
-            companyEmail: user.email,
-            industry: 'Not Specified',
-            companyLocation: 'Not Specified'
-        });
-        console.log('Employer profile created by Admin for:', email);
+    } catch (emailErr) {
+        console.error('Welcome email failed to send:', emailErr);
     }
 
     ApiResponse.created(
         { user: user.getPublicProfile() },
-        `${role.charAt(0).toUpperCase() + role.slice(1)} account created successfully`
+        `${normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1)} account created successfully`
     ).send(res);
 });
 
@@ -685,6 +715,23 @@ export const toggleEmployerVerification = asyncHandler(async (req, res) => {
     }
 
     await employer.save();
+
+    // Trigger Notification for Employer
+    if (status === 'rejected' || status === 'suspended') {
+        try {
+            await createNotification({
+                user: user._id,
+                role: 'employer',
+                type: NOTIFICATION_TYPES.COMPANY_SUSPENDED,
+                title: 'Your company was suspended',
+                message: `Your company verification was ${status}. Please contact support or check your profile.`,
+                sender: req.user.id,
+                route: '/employer/profile'
+            });
+        } catch (notifyErr) {
+            console.error('Employer suspension notification failed:', notifyErr);
+        }
+    }
 
     ApiResponse.success(
         { userId: user._id, verifiedByAdmin: employer.verifiedByAdmin, status: employer.status },

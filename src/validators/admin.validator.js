@@ -10,8 +10,8 @@ export const createUserValidation = [
         .notEmpty().withMessage('First name is required')
         .isLength({ max: 50 }).withMessage('First name cannot exceed 50 characters'),
     body('lastName')
+        .optional({ values: 'falsy' })
         .trim()
-        .notEmpty().withMessage('Last name is required')
         .isLength({ max: 50 }).withMessage('Last name cannot exceed 50 characters'),
     body('email')
         .trim()
@@ -20,9 +20,7 @@ export const createUserValidation = [
         .normalizeEmail(),
     body('password')
         .notEmpty().withMessage('Password is required')
-        .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
-        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/)
-        .withMessage('Password must include uppercase, lowercase, number, and special character'),
+        .isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
     body('role')
         .notEmpty().withMessage('Role is required')
         .isIn(Object.values(USER_ROLES)).withMessage('Invalid role'),

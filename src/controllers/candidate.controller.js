@@ -152,28 +152,31 @@ export const parseResume = asyncHandler(async (req, res) => {
 
 // ==================== GET DASHBOARD STATS ====================
 
+import { APPLICATION_STATUS } from '../utils/constants.js';
+
 /**
  * @desc    Get candidate dashboard overview
  * @route   GET /api/candidate/dashboard
  * @access  Private/Candidate
  */
 export const getDashboard = asyncHandler(async (req, res) => {
-    const totalApplications = await Application.countDocuments({ candidate: req.user.id });
-    const interviewsScheduled = await Application.countDocuments({
-        candidate: req.user.id,
-        status: 'interviewing'
-    });
-    const offersReceived = await Application.countDocuments({
-        candidate: req.user.id,
-        status: 'offered'
-    });
-
-    const candidate = await Candidate.findOne({ user: req.user.id });
+    const [totalApplications, interviewsScheduled, finalSelected, candidate] = await Promise.all([
+        Application.countDocuments({ candidate: req.user.id }),
+        Application.countDocuments({
+            candidate: req.user.id,
+            status: APPLICATION_STATUS.INTERVIEW_SCHEDULED
+        }),
+        Application.countDocuments({
+            candidate: req.user.id,
+            status: APPLICATION_STATUS.FINAL_SELECTED
+        }),
+        Candidate.findOne({ user: req.user.id })
+    ]);
 
     const stats = {
         totalApplications,
         interviewsScheduled,
-        offersReceived,
+        offersReceived: finalSelected, // Using final selection as "offers"
         profileCompletion: candidate?.isProfileComplete ? 100 : calculateProfileCompletion(req.user),
     };
 

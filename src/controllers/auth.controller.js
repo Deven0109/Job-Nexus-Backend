@@ -11,6 +11,8 @@ import {
 } from '../utils/jwt.js';
 import sendEmail from '../utils/email.js';
 import crypto from 'crypto';
+import { notifyAdmins } from '../services/notification.service.js';
+import { NOTIFICATION_TYPES } from '../utils/constants.js';
 
 // ==================== REGISTER ====================
 
@@ -106,6 +108,34 @@ export const register = asyncHandler(async (req, res) => {
         } catch (emailErr) {
             console.error('Welcome email failed to send:', emailErr);
             // We don't throw here so registration isn't blocked by email failure
+        }
+
+        // Trigger Admin Notification for Registration
+        try {
+            let notificationType = NOTIFICATION_TYPES.CANDIDATE_REGISTERED;
+            let message = 'New candidate registered';
+
+            if (user.role === 'recruiter') {
+                notificationType = NOTIFICATION_TYPES.RECRUITER_REGISTERED;
+                message = 'New recruiter registered';
+            } else if (user.role === 'employer') {
+                notificationType = NOTIFICATION_TYPES.EMPLOYER_REGISTERED;
+                message = 'New employer registered';
+            }
+
+            await notifyAdmins({
+                type: notificationType,
+                title: message,
+                message: `${user.firstName} ${user.lastName} has joined as a ${user.role}`,
+                sender: user._id,
+                route: user.role === 'candidate' 
+                    ? `/candidates?search=${user.email}` 
+                    : user.role === 'recruiter' 
+                        ? `/recruiters?search=${user.email}`
+                        : `/employers?search=${user.email}`
+            });
+        } catch (notifyErr) {
+            console.error('Admin registration notification failed:', notifyErr);
         }
 
         ApiResponse.created(

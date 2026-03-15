@@ -54,6 +54,15 @@ router.patch('/:id/toggle-status', authorize('recruiter', 'admin'), toggleJobSta
 // PUT /api/job-requests/:id — Edit job request by recruiter/admin
 router.put('/:id', authorize('recruiter', 'admin'), ...updateJobRequestValidation, validate, updateJobRequestByAdminRecruiter);
 
+// DELETE /api/job-requests/:id — Delete job request (Admin Only)
+router.delete('/:id', authorize('admin'), (req, res, next) => {
+    import('../models/JobRequest.model.js').then(m => {
+        m.default.findByIdAndDelete(req.params.id).then(() => {
+            res.json({ success: true, message: 'Job request deleted successfully' });
+        }).catch(next);
+    });
+});
+
 // ==================== RECRUITER ONLY ROUTES ====================
 
 // PATCH /api/job-requests/:id/approve — Approve a pending request

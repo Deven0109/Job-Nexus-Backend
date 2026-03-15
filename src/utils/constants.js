@@ -80,7 +80,13 @@ export const EMPLOYER_STATUS = {
 };
 
 export const NOTIFICATION_TYPES = {
+    NEW_COMPANY_VERIFICATION: 'new_company_verification',
+    COMPANY_SUSPENDED: 'company_suspended',
+    NEW_ACTIVE_JOB: 'new_active_job',
     APPLICATION_RECEIVED: 'application_received',
+    RECRUITER_REGISTERED: 'recruiter_registered',
+    EMPLOYER_REGISTERED: 'employer_registered',
+    CANDIDATE_REGISTERED: 'candidate_registered',
     APPLICATION_STATUS_CHANGED: 'application_status_changed',
     INTERVIEW_SCHEDULED: 'interview_scheduled',
     INTERVIEW_REMINDER: 'interview_reminder',

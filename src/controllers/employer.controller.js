@@ -6,6 +6,8 @@ import asyncHandler from '../utils/asyncHandler.js';
 
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
+import { notifyAdmins } from '../services/notification.service.js';
+import { NOTIFICATION_TYPES } from '../utils/constants.js';
 
 // ==================== GET PROFILE ====================
 
@@ -86,6 +88,21 @@ export const updateProfile = asyncHandler(async (req, res) => {
         { new: true, upsert: true }
     );
 
+    // Trigger Admin Notification for Company Verification if it's the first time or still pending
+    if (employer.status === 'pending') {
+        try {
+            await notifyAdmins({
+                type: NOTIFICATION_TYPES.NEW_COMPANY_VERIFICATION,
+                title: 'New company arrived for verification',
+                message: `${employer.companyName} has updated their profile and is waiting for verification.`,
+                sender: user._id,
+                route: `/employers?search=${user.email}`
+            });
+        } catch (notifyErr) {
+            console.error('Admin company verification notification failed:', notifyErr);
+        }
+    }
+
     ApiResponse.success(
         {
             user: user.getPublicProfile(),
@@ -102,15 +119,37 @@ export const updateProfile = asyncHandler(async (req, res) => {
  * @route   GET /api/employer/dashboard
  * @access  Private/Employer
  */
+import { APPLICATION_STATUS } from '../utils/constants.js';
+
+// ... (existing imports)
+
 export const getDashboard = asyncHandler(async (req, res) => {
-    const activeJobRequests = await Job.countDocuments({ employer: req.user.id, status: 'open' });
-    // Other stats will be populated as needed
+    const employerProfile = await Employer.findOne({ userId: req.user.id });
+    if (!employerProfile) {
+        throw ApiError.notFound('Employer profile not found');
+    }
+
+    const myJobs = await Job.find({ companyId: employerProfile._id }, '_id');
+    const myJobIds = myJobs.map(j => j._id);
+
+    const [activeJobs, totalApplications, interviews, hires] = await Promise.all([
+        Job.countDocuments({ companyId: employerProfile._id, status: 'active' }),
+        Application.countDocuments({ job: { $in: myJobIds } }),
+        Application.countDocuments({
+            job: { $in: myJobIds },
+            status: { $in: [APPLICATION_STATUS.INTERVIEW_SCHEDULED, APPLICATION_STATUS.SELECTED_NEXT_ROUND] }
+        }),
+        Application.countDocuments({
+            job: { $in: myJobIds },
+            status: APPLICATION_STATUS.FINAL_SELECTED
+        })
+    ]);
 
     const stats = {
-        activeJobRequests,
-        totalCandidatesReviewed: 0,
-        interviewsScheduled: 0,
-        hiresMade: 0,
+        activeJobs,
+        totalApplications,
+        interviewsScheduled: interviews,
+        hiresMade: hires,
     };
 
     ApiResponse.success({ stats }, 'Dashboard data retrieved').send(res);

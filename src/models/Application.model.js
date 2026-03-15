@@ -43,8 +43,20 @@ const applicationSchema = new mongoose.Schema(
             },
         ],
     },
-    { timestamps: true }
+    { 
+        timestamps: true,
+        toJSON: { virtuals: true },
+        toObject: { virtuals: true }
+    }
 );
+
+// Virtual for Candidate Profile (flattens app.candidate.candidateProfile for legacy support)
+applicationSchema.virtual('candidateProfile', {
+    ref: 'Candidate',
+    localField: 'candidate',
+    foreignField: 'user',
+    justOne: true
+});
 
 // Indexes
 applicationSchema.index({ job: 1 });

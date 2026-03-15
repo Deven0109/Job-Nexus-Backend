@@ -7,10 +7,16 @@ const startServer = async () => {
         // Connect to MongoDB
         await connectDB();
 
-        // Start Express server on BOTH IPv4 and IPv6 securely
+        // Create HTTP server
         import('http').then((http) => {
-            const server4 = http.createServer(app);
-            server4.listen(config.port, '127.0.0.1', () => {
+            const server = http.createServer(app);
+            
+            // Initialize Socket.IO
+            import('./src/socket.js').then(({ initSocket }) => {
+                initSocket(server);
+            });
+
+            server.listen(config.port, '0.0.0.0', () => {
                 console.log(`\n🚀 ==========================================`);
                 console.log(`   Job Consultancy API Server`);
                 console.log(`   Environment: ${config.env}`);
@@ -18,15 +24,6 @@ const startServer = async () => {
                 console.log(`   API: http://localhost:${config.port}/api`);
                 console.log(`   Health: http://localhost:${config.port}/api/health`);
                 console.log(`==========================================\n`);
-            });
-
-            // Prevent connection refused errors on modern Chrome by explicitly listening on ::1 (IPv6 Localhost)
-            const server6 = http.createServer(app);
-            server6.listen(config.port, '::1').on('error', (err) => {
-                // Silently ignore if IPv6 is not supported on the host machine
-                if (err.code !== 'EADDRNOTAVAIL') {
-                    console.error('IPv6 binding error:', err.message);
-                }
             });
         });
     } catch (error) {

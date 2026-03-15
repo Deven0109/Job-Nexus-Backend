@@ -130,6 +130,8 @@ jobSchema.index({ title: 'text', description: 'text', requiredSkills: 'text' });
 jobSchema.index({ country: 1, state: 1, city: 1 });
 jobSchema.index({ status: 1 });
 jobSchema.index({ visibility: 1 });
+jobSchema.index({ category: 1 });
+jobSchema.index({ experience: 1 });
 jobSchema.index({ companyId: 1 });
 jobSchema.index({ createdByRecruiter: 1 });
 

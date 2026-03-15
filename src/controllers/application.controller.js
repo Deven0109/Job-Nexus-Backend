@@ -1,13 +1,21 @@
+import User from '../models/User.model.js';
 import Application from '../models/Application.model.js';
 import Job from '../models/Job.model.js';
 import Candidate from '../models/Candidate.model.js';
 import Employer from '../models/Employer.model.js';
+import JobRequest from '../models/JobRequest.model.js';
 import RecruiterCategory from '../models/RecruiterCategory.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { getIO } from '../socket.js';
 
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
-import { APPLICATION_STATUS, USER_ROLES } from '../utils/constants.js';
+import { APPLICATION_STATUS, USER_ROLES, NOTIFICATION_TYPES } from '../utils/constants.js';
+import {
+    createNotification,
+    notifyJobRecruiters,
+    notifyAdmins
+} from '../services/notification.service.js';
 
 // ==================== CANDIDATE FLOW ====================
 
@@ -54,6 +62,33 @@ export const applyToJob = asyncHandler(async (req, res) => {
     });
 
     ApiResponse.created(application, 'Application submitted successfully').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'create' });
+
+    // Notification Logic: Notify the recruiter(s) managing this job
+    notifyJobRecruiters(jobId, {
+        type: 'application',
+        title: 'New Application Received',
+        message: `${req.user.firstName} ${req.user.lastName} applied for ${job.title}`,
+        jobId: job._id,
+        applicationId: application._id,
+        route: `/recruiter/job/${job._id}/applications`
+    });
+
+    // Notification Logic: Notify Admin
+    try {
+        await notifyAdmins({
+            type: NOTIFICATION_TYPES.APPLICATION_RECEIVED,
+            title: 'New application received',
+            message: `${req.user.firstName} ${req.user.lastName} applied for ${job.title}`,
+            jobId: job._id,
+            applicationId: application._id,
+            route: `/applications?jobId=${job._id}`
+        });
+    } catch (notifyErr) {
+        console.error('Admin application notification failed:', notifyErr);
+    }
 });
 
 /**
@@ -81,9 +116,18 @@ export const getMyApplications = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter
  */
 export const getJobApplications = asyncHandler(async (req, res) => {
-    const { jobId } = req.params;
+    let { jobId } = req.params;
 
-    const job = await Job.findById(jobId);
+    let job = await Job.findById(jobId);
+    // If job not found, check if jobId is a JobRequest ID
+    if (!job) {
+        const jr = await JobRequest.findById(jobId);
+        if (jr && jr.jobId) {
+            jobId = jr.jobId;
+            job = await Job.findById(jobId);
+        }
+    }
+
     if (!job) throw ApiError.notFound('Job not found');
 
     if (req.user.role === USER_ROLES.RECRUITER) {
@@ -99,24 +143,16 @@ export const getJobApplications = asyncHandler(async (req, res) => {
         .populate({
             path: 'candidate',
             select: 'firstName lastName email avatar phone',
+            populate: { path: 'candidateProfile', select: 'resumeUrl phone' }
         })
         .populate({
             path: 'job',
             select: 'title location city state country workType experience salaryMin salaryMax'
         })
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean({ virtuals: true });
 
-    // Note: We might need to populate Candidate details from Candidate model too if needed
-    // But User model usually has the basics. Let's add Candidate profile populating.
-    const enrichedApplications = await Promise.all(applications.map(async (app) => {
-        const profile = await Candidate.findOne({ user: app.candidate._id }).select('resumeUrl phone');
-        return {
-            ...app.toObject(),
-            candidateProfile: profile
-        };
-    }));
-
-    ApiResponse.success(enrichedApplications, 'Job applications retrieved').send(res);
+    ApiResponse.success(applications, 'Job applications retrieved').send(res);
 });
 
 /**
@@ -134,6 +170,22 @@ export const reviewApplication = asyncHandler(async (req, res) => {
     if (!application) throw ApiError.notFound('Application not found');
 
     ApiResponse.success(application, 'Application moved to Under Review').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'review', id: req.params.id });
+
+    // Notification Logic: Notify the candidate (Case 7)
+    const job = await Job.findById(application.job);
+    createNotification({
+        user: application.candidate,
+        role: 'candidate',
+        type: 'application',
+        title: 'Application Update',
+        message: `Your application for ${job?.title} is under review`,
+        jobId: application.job,
+        applicationId: application._id,
+        route: '/candidate/applications'
+    });
 });
 
 /**
@@ -151,6 +203,22 @@ export const rejectApplication = asyncHandler(async (req, res) => {
     if (!application) throw ApiError.notFound('Application not found');
 
     ApiResponse.success(application, 'Candidate rejected by recruiter').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'reject', id: req.params.id });
+
+    // Notification Logic: Notify the candidate (Case 6)
+    const job = await Job.findById(application.job);
+    createNotification({
+        user: application.candidate,
+        role: 'candidate',
+        type: 'rejection',
+        title: 'Application Rejected',
+        message: `Your application for ${job?.title || 'the job'} has been rejected`,
+        jobId: application.job,
+        applicationId: application._id,
+        route: '/candidate/applications'
+    });
 });
 
 /**
@@ -168,6 +236,30 @@ export const shortlistApplication = asyncHandler(async (req, res) => {
     if (!application) throw ApiError.notFound('Application not found');
 
     ApiResponse.success(application, 'Candidate shortlisted and sent to employer').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'shortlist', id: req.params.id });
+
+    // Notification Logic: Notify the employer
+    const job = await Job.findById(application.job);
+    const employer = await User.findOne({ _id: job.createdByEmployer }); // Need to make sure we find the right employer user
+
+    // In this system, companyId belongs to Employer model, which has a userId
+    const EmployerModel = (await import('../models/Employer.model.js')).default;
+    const employerDoc = await EmployerModel.findById(job.companyId);
+
+    if (employerDoc) {
+        createNotification({
+            user: employerDoc.userId,
+            role: 'employer',
+            type: 'shortlist',
+            title: 'Candidate Shortlisted',
+            message: `${req.user.firstName} ${req.user.lastName} has shortlisted a candidate for ${job.title}`,
+            jobId: job._id,
+            applicationId: application._id,
+            route: `/employer/jobs/${job._id}/review`
+        });
+    }
 });
 
 /**
@@ -193,6 +285,43 @@ export const scheduleInterview = asyncHandler(async (req, res) => {
     await application.save();
 
     ApiResponse.success(application, 'Interview scheduled successfully').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'schedule', id: req.params.id });
+
+    // Notification Logic: Notify both Candidate (Case 11/12) and Employer
+    const job = await Job.findById(application.job);
+    const candidateUser = await User.findById(application.candidate);
+    const dateStr = new Date(scheduledAt).toLocaleDateString();
+    const timeStr = new Date(scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // 1. Notify Candidate
+    createNotification({
+        user: application.candidate,
+        role: 'candidate',
+        type: 'interview',
+        title: 'Interview Scheduled',
+        message: `Interview scheduled for ${job?.title} - Round ${roundNumber} on ${dateStr} at ${timeStr}`,
+        jobId: application.job,
+        applicationId: application._id,
+        route: '/candidate/applications'
+    });
+
+    // 2. Notify Employer
+    const EmployerModel = (await import('../models/Employer.model.js')).default;
+    const employerDoc = await EmployerModel.findById(job.companyId);
+    if (employerDoc) {
+        createNotification({
+            user: employerDoc.userId,
+            role: 'employer',
+            type: 'interview',
+            title: 'Interview Scheduled',
+            message: `Interview scheduled for ${candidateUser?.firstName} ${candidateUser?.lastName} for ${job.title} - Round ${roundNumber} on ${dateStr} at ${timeStr}`,
+            jobId: job._id,
+            applicationId: application._id,
+            route: '/employer/job-requests' // Or appropriate module
+        });
+    }
 });
 
 /**
@@ -210,6 +339,9 @@ export const nextRound = asyncHandler(async (req, res) => {
     if (!application) throw ApiError.notFound('Application not found');
 
     ApiResponse.success(application, 'Candidate selected for next round').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'next-round', id: req.params.id });
 });
 
 /**
@@ -227,6 +359,40 @@ export const finalSelect = asyncHandler(async (req, res) => {
     if (!application) throw ApiError.notFound('Application not found');
 
     ApiResponse.success(application, 'Candidate finally selected').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'hire', id: req.params.id });
+
+    const job = await Job.findById(application.job).populate('companyId');
+    const candidateUser = await User.findById(application.candidate);
+
+    // 1. Notify Candidate (Case 14)
+    createNotification({
+        user: application.candidate,
+        role: 'candidate',
+        type: 'hire',
+        title: 'Congratulations!',
+        message: `You have been hired for ${job?.companyId?.companyName || 'the company'}`,
+        jobId: application.job,
+        applicationId: application._id,
+        route: '/candidate/applications'
+    });
+
+    // 2. Notify Employer (Case 14)
+    const EmployerModel = (await import('../models/Employer.model.js')).default;
+    const employerDoc = await EmployerModel.findById(job.companyId);
+    if (employerDoc) {
+        createNotification({
+            user: employerDoc.userId,
+            role: 'employer',
+            type: 'hire',
+            title: 'Candidate Hired',
+            message: `${candidateUser?.firstName} ${candidateUser?.lastName} has been hired for ${job.title} in your company`,
+            jobId: job._id,
+            applicationId: application._id,
+            route: '/employer/job-requests'
+        });
+    }
 });
 
 /**
@@ -244,6 +410,40 @@ export const finalReject = asyncHandler(async (req, res) => {
     if (!application) throw ApiError.notFound('Application not found');
 
     ApiResponse.success(application, 'Candidate rejected after interview').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'reject-after-interview', id: req.params.id });
+
+    const job = await Job.findById(application.job);
+    const candidateUser = await User.findById(application.candidate);
+
+    // 1. Notify Candidate (Case 13)
+    createNotification({
+        user: application.candidate,
+        role: 'candidate',
+        type: 'rejection',
+        title: 'Application Update',
+        message: `Your application for ${job?.title} has been rejected`,
+        jobId: application.job,
+        applicationId: application._id,
+        route: '/candidate/applications'
+    });
+
+    // 2. Notify Employer (Case 13)
+    const EmployerModel = (await import('../models/Employer.model.js')).default;
+    const employerDoc = await EmployerModel.findById(job.companyId);
+    if (employerDoc) {
+        createNotification({
+            user: employerDoc.userId,
+            role: 'employer',
+            type: 'rejection',
+            title: 'Candidate Rejected',
+            message: `${candidateUser?.firstName} ${candidateUser?.lastName} was rejected for ${job.title}`,
+            jobId: job._id,
+            applicationId: application._id,
+            route: '/employer/job-requests'
+        });
+    }
 });
 
 // ==================== EMPLOYER FLOW ====================
@@ -255,13 +455,28 @@ export const finalReject = asyncHandler(async (req, res) => {
  */
 export const getEmployerShortlisted = asyncHandler(async (req, res) => {
     const { jobId } = req.params;
-    const { page = 1, limit = 6 } = req.query;
+    const { page = 1, limit = 6, applicationId } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    let targetJobId = jobId;
+
     const matchQuery = {
-        job: jobId,
-        status: APPLICATION_STATUS.RECRUITER_SHORTLISTED
+        job: targetJobId
     };
+
+    // If no applications found, check if jobId is actually a JobRequest ID
+    const countCheck = await Application.countDocuments({ job: targetJobId });
+    if (countCheck === 0) {
+        const jr = await JobRequest.findById(jobId);
+        if (jr && jr.jobId) {
+            targetJobId = jr.jobId;
+            matchQuery.job = targetJobId;
+        }
+    }
+
+    if (applicationId) {
+        matchQuery._id = applicationId;
+    }
 
     const total = await Application.countDocuments(matchQuery);
 
@@ -269,23 +484,17 @@ export const getEmployerShortlisted = asyncHandler(async (req, res) => {
         .populate({
             path: 'candidate',
             select: 'firstName lastName email avatar phone',
+            populate: { path: 'candidateProfile', select: 'resumeUrl summary skills experience education' }
         }).populate({
             path: 'job',
             select: 'title location city state country'
         })
         .skip(skip)
-        .limit(parseInt(limit));
-
-    const enrichedApplications = await Promise.all(applications.map(async (app) => {
-        const profile = await Candidate.findOne({ user: app.candidate._id }).select('resumeUrl summary skills experience education');
-        return {
-            ...app.toObject(),
-            candidateProfile: profile
-        };
-    }));
+        .limit(parseInt(limit))
+        .lean({ virtuals: true });
 
     ApiResponse.success({
-        applications: enrichedApplications,
+        applications,
         pagination: {
             total,
             page: parseInt(page),
@@ -312,6 +521,36 @@ export const employerApprove = asyncHandler(async (req, res) => {
     if (!application) throw ApiError.notFound('Application not found');
 
     ApiResponse.success(application, 'Candidate approved by employer').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'employer-approve', id: req.params.id });
+
+    // Notification Logic: Notify Candidate & Recruiter (Case 10)
+    const job = await Job.findById(application.job);
+    const employerUser = await User.findById(req.user.id);
+    const candidateUser = await User.findById(application.candidate);
+
+    // 1. Notify Candidate
+    createNotification({
+        user: application.candidate,
+        role: 'candidate',
+        type: 'shortlist',
+        title: 'Application Shortlisted',
+        message: `Your application for ${job?.title} has been shortlisted`,
+        jobId: application.job,
+        applicationId: application._id,
+        route: '/candidate/applications'
+    });
+
+    // 2. Notify Recruiter
+    notifyJobRecruiters(job._id, {
+        type: 'shortlist',
+        title: 'Candidate Shortlisted',
+        message: `${candidateUser?.firstName} ${candidateUser?.lastName} was shortlisted by ${employerUser?.firstName} ${employerUser?.lastName} for ${job?.title}`,
+        jobId: job._id,
+        applicationId: application._id,
+        route: `/recruiter/job/${job._id}/applications`
+    });
 });
 
 /**
@@ -329,6 +568,82 @@ export const employerReject = asyncHandler(async (req, res) => {
     if (!application) throw ApiError.notFound('Application not found');
 
     ApiResponse.success(application, 'Candidate rejected by employer').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'employer-reject', id: req.params.id });
+
+    // Notification Logic: Notify Candidate & Recruiter (Case 9)
+    const job = await Job.findById(application.job);
+    const employerUser = await User.findById(req.user.id);
+    const candidateUser = await User.findById(application.candidate);
+
+    // 1. Notify Candidate
+    createNotification({
+        user: application.candidate,
+        role: 'candidate',
+        type: 'rejection',
+        title: 'Application Update',
+        message: `Your application for ${job?.title} has been rejected`,
+        jobId: application.job,
+        applicationId: application._id,
+        route: '/candidate/applications'
+    });
+
+    // 2. Notify Recruiter
+    notifyJobRecruiters(job._id, {
+        type: 'rejection',
+        title: 'Candidate Rejected',
+        message: `${candidateUser?.firstName} ${candidateUser?.lastName} was rejected by ${employerUser?.firstName} ${employerUser?.lastName} for ${job?.title}`,
+        jobId: job._id,
+        applicationId: application._id,
+        route: `/recruiter/job/${job._id}/applications`
+    });
+});
+
+/**
+ * @desc    Employer Hire candidate (Final Selection)
+ * @route   PUT /api/employer/application/:id/hire
+ * @access  Private/Employer
+ */
+export const employerHire = asyncHandler(async (req, res) => {
+    const application = await Application.findByIdAndUpdate(
+        req.params.id,
+        { status: APPLICATION_STATUS.FINAL_SELECTED },
+        { new: true }
+    );
+
+    if (!application) throw ApiError.notFound('Application not found');
+
+    ApiResponse.success(application, 'Candidate hired successfully by employer').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'application', action: 'hire', id: req.params.id });
+
+    const job = await Job.findById(application.job).populate('companyId');
+    const employerUser = await User.findById(req.user.id);
+    const candidateUser = await User.findById(application.candidate);
+
+    // 1. Notify Candidate
+    createNotification({
+        user: application.candidate,
+        role: 'candidate',
+        type: 'hire',
+        title: 'Congratulations!',
+        message: `You have been hired for ${job?.companyId?.companyName || 'the company'} by ${employerUser?.firstName} ${employerUser?.lastName}`,
+        jobId: application.job,
+        applicationId: application._id,
+        route: '/candidate/applications'
+    });
+
+    // 2. Notify Recruiter
+    notifyJobRecruiters(job._id, {
+        type: 'hire',
+        title: 'Candidate Hired',
+        message: `${candidateUser?.firstName} ${candidateUser?.lastName} has been hired by ${employerUser?.firstName} ${employerUser?.lastName} for ${job?.title}`,
+        jobId: job._id,
+        applicationId: application._id,
+        route: `/recruiter/job/${job._id}/applications`
+    });
 });
 
 // ==================== PIPELINE / ADMIN VIEW ====================
@@ -339,9 +654,19 @@ export const employerReject = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter,Admin
  */
 export const getPipeline = asyncHandler(async (req, res) => {
-    const { jobId } = req.params;
+    let { jobId } = req.params;
 
-    const job = await Job.findById(jobId);
+    let job = await Job.findById(jobId);
+    
+    // If job not found, check if jobId is a JobRequest ID
+    if (!job) {
+        const jr = await JobRequest.findById(jobId);
+        if (jr && jr.jobId) {
+            jobId = jr.jobId;
+            job = await Job.findById(jobId);
+        }
+    }
+
     if (!job) throw ApiError.notFound('Job not found');
 
     if (req.user.role === USER_ROLES.RECRUITER) {
@@ -366,6 +691,7 @@ export const getPipeline = asyncHandler(async (req, res) => {
         .populate({
             path: 'candidate',
             select: 'firstName lastName email avatar phone',
+            populate: { path: 'candidateProfile', select: 'resumeUrl phone experience' }
         });
 
     const pipeline = {
@@ -390,4 +716,56 @@ export const getPipeline = asyncHandler(async (req, res) => {
     });
 
     ApiResponse.success(pipeline, 'Job pipeline retrieved').send(res);
+});
+
+/**
+ * @desc    Get all applications (Admin only)
+ * @route   GET /api/applications/admin/all
+ * @access  Private/Admin
+ */
+export const getAllApplicationsAdmin = asyncHandler(async (req, res) => {
+    const { page = 1, limit = 10, status = '', search = '' } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const query = {};
+    if (status) query.status = status;
+
+    // Search logic: name or email
+    if (search) {
+        const users = await User.find({
+            $or: [
+                { firstName: { $regex: search, $options: 'i' } },
+                { lastName: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } }
+            ]
+        }).select('_id');
+        const candidateIds = users.map(u => u._id);
+        query.candidate = { $in: candidateIds };
+    }
+
+    const applications = await Application.find(query)
+        .populate({
+            path: 'candidate',
+            select: 'firstName lastName email avatar phone',
+            populate: { path: 'candidateProfile', select: 'phone city category jobCategory' }
+        })
+        .populate({
+            path: 'job',
+            select: 'title location companyId category jobCategory',
+            populate: { path: 'companyId', select: 'companyName logo contactPersonPhone companyEmail' }
+        })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean({ virtuals: true });
+
+    const total = await Application.countDocuments(query);
+
+    ApiResponse.success({
+        applications,
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit))
+    }, 'All applications retrieved').send(res);
 });

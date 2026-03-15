@@ -127,4 +127,22 @@ router.put(
     applicationController.employerReject
 );
 
+// Employer hire candidate
+router.put(
+    '/employer/application/:id/hire',
+    auth,
+    authorize(USER_ROLES.EMPLOYER, USER_ROLES.ADMIN),
+    applicationController.employerHire
+);
+
+// ==================== ADMIN ROUTES ====================
+
+// Get all applications (Admin only)
+router.get(
+    '/admin/all',
+    auth,
+    authorize(USER_ROLES.ADMIN),
+    applicationController.getAllApplicationsAdmin
+);
+
 export default router;

@@ -110,6 +110,7 @@ const userSchema = new mongoose.Schema(
     {
         timestamps: true, // createdAt, updatedAt
         toJSON: {
+            virtuals: true,
             transform(doc, ret) {
                 delete ret.password;
                 delete ret.refreshToken;
@@ -120,6 +121,7 @@ const userSchema = new mongoose.Schema(
             },
         },
         toObject: {
+            virtuals: true,
             transform(doc, ret) {
                 delete ret.password;
                 delete ret.refreshToken;
@@ -131,6 +133,14 @@ const userSchema = new mongoose.Schema(
         },
     }
 );
+
+// Virtual for Candidate Profile
+userSchema.virtual('candidateProfile', {
+    ref: 'Candidate',
+    localField: '_id',
+    foreignField: 'user',
+    justOne: true
+});
 
 // ==================== INDEXES ====================
 userSchema.index({ role: 1 });

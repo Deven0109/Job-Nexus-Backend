@@ -3,6 +3,7 @@ import Employer from '../models/Employer.model.js';
 import Job from '../models/Job.model.js';
 import RecruiterCategory from '../models/RecruiterCategory.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { getIO } from '../socket.js';
 
 const checkRecruiterAuth = async (recruiterId, jobCategory, jobTitle) => {
     if (!jobCategory || !jobTitle) return false;
@@ -23,6 +24,13 @@ const checkRecruiterAuth = async (recruiterId, jobCategory, jobTitle) => {
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { buildPagination, paginationMeta } from '../utils/helpers.js';
+import { NOTIFICATION_TYPES } from '../utils/constants.js';
+import {
+    createNotification,
+    notifyMatchedRecruiters,
+    notifyAllCandidates,
+    notifyAdmins
+} from '../services/notification.service.js';
 
 // ==================== EMPLOYER: CREATE JOB REQUEST ====================
 
@@ -69,6 +77,18 @@ export const createJobRequest = asyncHandler(async (req, res) => {
         { jobRequest },
         'Job request submitted successfully'
     ).send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'job_request', action: 'create' });
+
+    // Notification Logic: Notify relevant recruiters by category and job title
+    notifyMatchedRecruiters(jobRequest.jobCategory, jobRequest.jobTitle, {
+        type: 'job_request',
+        title: 'New Job Request Received',
+        message: `New job request received for ${jobRequest.jobTitle} in ${jobRequest.jobCategory}`,
+        jobRequestId: jobRequest._id,
+        route: '/recruiter/job-requests'
+    });
 });
 
 // ==================== EMPLOYER: GET MY JOB REQUESTS ====================
@@ -202,7 +222,7 @@ export const cancelJobRequest = asyncHandler(async (req, res) => {
     ApiResponse.success(null, 'Job request cancelled successfully').send(res);
 });
 
-// ==================== RECRUITER/ADMIN: LIST ALL JOB REQUESTS ====================
+import Application from '../models/Application.model.js';
 
 /**
  * @desc    Recruiter or Admin views all job requests
@@ -239,7 +259,7 @@ export const listJobRequests = asyncHandler(async (req, res) => {
         filter.jobTitle = new RegExp(req.query.search, 'i');
     }
 
-    const [jobRequests, total] = await Promise.all([
+    const [jobRequestsRows, total, totalActive, totalOverall] = await Promise.all([
         JobRequest.find(filter)
             .populate('companyId', 'companyName companyEmail industry companyLocation')
             .populate('createdByEmployer', 'firstName lastName email')
@@ -248,12 +268,50 @@ export const listJobRequests = asyncHandler(async (req, res) => {
             .skip(skip)
             .limit(limit),
         JobRequest.countDocuments(filter),
+        JobRequest.countDocuments({ ...filter, status: 'active' }),
+        JobRequest.countDocuments({ ...filter, status: { $ne: null } }) // Get total matching current filters but across all pages
     ]);
+
+    // Base filter for the recruiter's permissions (ignoring UI search/status filters)
+    let statsFilter = {};
+    if (req.user.role === 'recruiter') {
+        const categories = await RecruiterCategory.find({ recruiterId: req.user.id });
+        if (categories.length === 0) {
+            statsFilter._id = null;
+        } else {
+            const orConditions = categories.map(cat => ({
+                jobCategory: { $regex: new RegExp(`^${cat.categoryName.trim()}$`, 'i') },
+                jobTitle: { $in: cat.selectedJobTitles.map(t => new RegExp(`^${t.trim()}$`, 'i')) }
+            }));
+            statsFilter.$or = orConditions;
+        }
+    }
+
+    // Also get authorized counts (regardless of UI search/filter) for the stats cards
+    const [globalActive, globalTotal] = await Promise.all([
+        JobRequest.countDocuments({ ...statsFilter, status: 'active' }),
+        JobRequest.countDocuments(statsFilter)
+    ]);
+
+    // Enhance with application counts
+    const jobRequests = await Promise.all(jobRequestsRows.map(async (jr) => {
+        const obj = jr.toObject();
+        if (obj.jobId) {
+            obj.applicantCount = await Application.countDocuments({ job: obj.jobId });
+        } else {
+            obj.applicantCount = 0;
+        }
+        return obj;
+    }));
 
     ApiResponse.success(
         {
             jobRequests,
             pagination: paginationMeta(total, page, limit),
+            stats: {
+                totalActive: globalActive,
+                totalOverall: globalTotal
+            }
         },
         'Job requests retrieved'
     ).send(res);
@@ -380,6 +438,20 @@ export const approveJobRequest = asyncHandler(async (req, res) => {
     await jobRequest.save();
 
     ApiResponse.success({ jobRequest }, 'Job request approved. Ready for activation.').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'job_request', action: 'approve', id: jobRequest._id });
+
+    // Notification Logic: Notify the specific employer
+    createNotification({
+        user: jobRequest.createdByEmployer,
+        role: 'employer',
+        type: 'job_request_approved',
+        title: 'Job Request Approved',
+        message: `Your job request for ${jobRequest.jobTitle} has been approved.`,
+        jobRequestId: jobRequest._id,
+        route: '/employer/job-requests'
+    });
 });
 
 // ==================== RECRUITER: REJECT JOB REQUEST ====================
@@ -411,6 +483,20 @@ export const rejectJobRequest = asyncHandler(async (req, res) => {
     await jobRequest.save();
 
     ApiResponse.success({ jobRequest }, 'Job request rejected').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'job_request', action: 'reject', id: jobRequest._id });
+
+    // Notification Logic: Notify the specific employer
+    createNotification({
+        user: jobRequest.createdByEmployer,
+        role: 'employer',
+        type: 'rejection',
+        title: 'Job Request Rejected',
+        message: `Your job request for ${jobRequest.jobTitle} has been rejected`,
+        jobRequestId: jobRequest._id,
+        route: '/employer/job-requests'
+    });
 });
 
 // ==================== RECRUITER: ACTIVATE JOB ====================
@@ -466,6 +552,31 @@ export const activateJob = asyncHandler(async (req, res) => {
     await jobRequest.save();
 
     ApiResponse.success({ jobRequest, job: newJob }, 'Job requested activated successfully').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'job_request', action: 'activate', id: jobRequest._id });
+
+    // Notification Logic: Notify all candidates
+    notifyAllCandidates({
+        type: 'job_activated',
+        title: 'New Active Job',
+        message: `A new job is now active: ${newJob.title}`,
+        jobId: newJob._id,
+        route: '/jobs'
+    });
+
+    // Notification Logic: Notify Admin
+    try {
+        await notifyAdmins({
+            type: NOTIFICATION_TYPES.NEW_ACTIVE_JOB,
+            title: 'New active job',
+            message: `A new job "${newJob.title}" has been activated by ${req.user.firstName} ${req.user.lastName}`,
+            jobId: newJob._id,
+            route: `/jobs?search=${newJob.title}`
+        });
+    } catch (notifyErr) {
+        console.error('Admin job activation notification failed:', notifyErr);
+    }
 });
 
 // ==================== RECRUITER/ADMIN: TOGGLE JOB STATUS ====================

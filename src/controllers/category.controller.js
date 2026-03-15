@@ -3,6 +3,7 @@ import ApiResponse from '../utils/ApiResponse.js';
 import ApiError from '../utils/ApiError.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { masterCategories } from '../utils/categoriesList.js';
+import { getIO } from '../socket.js';
 
 /**
  * @desc Get all categories (with filtering for public/admin)
@@ -51,6 +52,9 @@ export const createCategory = asyncHandler(async (req, res) => {
     });
 
     ApiResponse.created(category, 'Category created successfully').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'category', action: 'create' });
 });
 
 /**
@@ -74,6 +78,9 @@ export const updateCategory = asyncHandler(async (req, res) => {
     );
 
     ApiResponse.success(category, 'Category updated successfully').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'category', action: 'update', id: req.params.id });
 });
 
 /**
@@ -91,4 +98,7 @@ export const deleteCategory = asyncHandler(async (req, res) => {
     await category.deleteOne();
 
     ApiResponse.success(null, 'Category deleted successfully').send(res);
+
+    // Global Data Sync
+    getIO()?.emit('data:updated', { type: 'category', action: 'delete', id: req.params.id });
 });
