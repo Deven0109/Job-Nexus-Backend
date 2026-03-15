@@ -146,6 +146,13 @@ app.use(express.static(path.join(__dirname, '../public')));
 app.get('/*any', (req, res, next) => {
     // If it's an API route, let it fall through to 404
     if (req.url.startsWith('/api')) return next();
+    
+    // Serve admin frontend for /admin routes
+    if (req.url.startsWith('/admin')) {
+        return res.sendFile(path.join(__dirname, '../public/admin/index.html'));
+    }
+    
+    // Serve main frontend for all other routes
     res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
