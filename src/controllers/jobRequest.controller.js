@@ -565,6 +565,18 @@ export const activateJob = asyncHandler(async (req, res) => {
         route: '/jobs'
     });
 
+    // Notification Logic: Notify the specific employer
+    createNotification({
+        user: jobRequest.createdByEmployer,
+        role: 'employer',
+        type: 'job_activated',
+        title: 'Job Now Active',
+        message: `Your job request for ${newJob.title} is now active and public.`,
+        jobId: newJob._id,
+        jobRequestId: jobRequest._id,
+        route: '/employer/job-requests'
+    });
+
     // Notification Logic: Notify Admin
     try {
         await notifyAdmins({

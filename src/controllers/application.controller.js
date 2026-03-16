@@ -119,7 +119,6 @@ export const getJobApplications = asyncHandler(async (req, res) => {
     let { jobId } = req.params;
 
     let job = await Job.findById(jobId);
-    // If job not found, check if jobId is a JobRequest ID
     if (!job) {
         const jr = await JobRequest.findById(jobId);
         if (jr && jr.jobId) {
@@ -161,20 +160,26 @@ export const getJobApplications = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter
  */
 export const reviewApplication = asyncHandler(async (req, res) => {
+    const existing = await Application.findById(req.params.id);
+    if (!existing) throw ApiError.notFound('Application not found');
+
+    // Prevent duplicate review actions
+    if (existing.status !== APPLICATION_STATUS.APPLIED) {
+        return ApiResponse.success(existing, 'Application is already under review or processed').send(res);
+    }
+
     const application = await Application.findByIdAndUpdate(
         req.params.id,
         { status: APPLICATION_STATUS.UNDER_REVIEW },
         { new: true }
     );
 
-    if (!application) throw ApiError.notFound('Application not found');
-
     ApiResponse.success(application, 'Application moved to Under Review').send(res);
 
     // Global Data Sync
     getIO()?.emit('data:updated', { type: 'application', action: 'review', id: req.params.id });
 
-    // Notification Logic: Notify the candidate (Case 7)
+    // Notification Logic: Notify the candidate
     const job = await Job.findById(application.job);
     createNotification({
         user: application.candidate,
@@ -186,6 +191,25 @@ export const reviewApplication = asyncHandler(async (req, res) => {
         applicationId: application._id,
         route: '/candidate/applications'
     });
+
+    // Notification Logic: Notify the Employer
+    const candidateUser = await User.findById(application.candidate);
+    const EmployerModel = (await import('../models/Employer.model.js')).default;
+    const employerDoc = await EmployerModel.findById(job.companyId);
+
+    if (employerDoc) {
+        const roleLabel = req.user.role === USER_ROLES.ADMIN ? 'Admin' : 'Recruiter';
+        createNotification({
+            user: employerDoc.userId,
+            role: 'employer',
+            type: 'shortlist',
+            title: `Candidate Shortlisted by ${roleLabel}`,
+            message: `${roleLabel} ${req.user.firstName} ${req.user.lastName} has shortlisted candidate ${candidateUser?.firstName} ${candidateUser?.lastName} for ${job?.title}`,
+            jobId: job?._id,
+            applicationId: application._id,
+            route: `/employer/jobs/${job?._id}/review?appId=${application._id}`
+        });
+    }
 });
 
 /**
@@ -207,7 +231,7 @@ export const rejectApplication = asyncHandler(async (req, res) => {
     // Global Data Sync
     getIO()?.emit('data:updated', { type: 'application', action: 'reject', id: req.params.id });
 
-    // Notification Logic: Notify the candidate (Case 6)
+    // Notification Logic: Notify the candidate
     const job = await Job.findById(application.job);
     createNotification({
         user: application.candidate,
@@ -227,39 +251,58 @@ export const rejectApplication = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter
  */
 export const shortlistApplication = asyncHandler(async (req, res) => {
+    const existing = await Application.findById(req.params.id);
+    if (!existing) throw ApiError.notFound('Application not found');
+
+    // Prevent duplicate shortlist actions
+    if (existing.status === APPLICATION_STATUS.RECRUITER_SHORTLISTED) {
+        return ApiResponse.success(existing, 'Already shortlisted').send(res);
+    }
+
     const application = await Application.findByIdAndUpdate(
         req.params.id,
         { status: APPLICATION_STATUS.RECRUITER_SHORTLISTED },
         { new: true }
     );
 
-    if (!application) throw ApiError.notFound('Application not found');
-
     ApiResponse.success(application, 'Candidate shortlisted and sent to employer').send(res);
 
     // Global Data Sync
     getIO()?.emit('data:updated', { type: 'application', action: 'shortlist', id: req.params.id });
 
-    // Notification Logic: Notify the employer
+    // Notification Logic
     const job = await Job.findById(application.job);
-    const employer = await User.findOne({ _id: job.createdByEmployer }); // Need to make sure we find the right employer user
-
-    // In this system, companyId belongs to Employer model, which has a userId
+    const candidateUser = await User.findById(application.candidate);
+    
+    // Notify Employer
     const EmployerModel = (await import('../models/Employer.model.js')).default;
     const employerDoc = await EmployerModel.findById(job.companyId);
 
     if (employerDoc) {
+        const roleLabel = req.user.role === USER_ROLES.ADMIN ? 'Admin' : 'Recruiter';
         createNotification({
             user: employerDoc.userId,
             role: 'employer',
             type: 'shortlist',
-            title: 'Candidate Shortlisted',
-            message: `${req.user.firstName} ${req.user.lastName} has shortlisted a candidate for ${job.title}`,
+            title: `Candidate Shortlisted by ${roleLabel}`,
+            message: `${roleLabel} ${req.user.firstName} ${req.user.lastName} has shortlisted candidate ${candidateUser?.firstName} ${candidateUser?.lastName} for ${job.title}`,
             jobId: job._id,
             applicationId: application._id,
-            route: `/employer/jobs/${job._id}/review`
+            route: `/employer/jobs/${job._id}/review?appId=${application._id}`
         });
     }
+
+    // Notify Recruiter (Confirmation)
+    createNotification({
+        user: req.user.id,
+        role: 'recruiter',
+        type: 'shortlist',
+        title: 'Candidate Shortlisted',
+        message: `You have shortlisted ${candidateUser?.firstName} ${candidateUser?.lastName} for ${job.title}`,
+        jobId: job._id,
+        applicationId: application._id,
+        route: `/recruiter/job/${job._id}/applications`
+    });
 });
 
 /**
@@ -273,35 +316,55 @@ export const scheduleInterview = asyncHandler(async (req, res) => {
     const application = await Application.findById(req.params.id);
     if (!application) throw ApiError.notFound('Application not found');
 
-    application.interviewRounds.push({
-        roundNumber,
-        meetLink,
-        meetCode,
-        scheduledAt,
-        createdBy: req.user.id
-    });
+    const isReschedule = application.interviewRounds.some(r => r.roundNumber === parseInt(roundNumber));
 
-    application.status = APPLICATION_STATUS.INTERVIEW_SCHEDULED;
-    await application.save();
+    if (isReschedule) {
+        // Update existing round
+        await Application.updateOne(
+            { _id: req.params.id, "interviewRounds.roundNumber": parseInt(roundNumber) },
+            {
+                $set: {
+                    "interviewRounds.$.meetLink": meetLink,
+                    "interviewRounds.$.meetCode": meetCode,
+                    "interviewRounds.$.scheduledAt": scheduledAt,
+                    "interviewRounds.$.createdBy": req.user.id
+                }
+            }
+        );
+    } else {
+        // Add new round
+        application.interviewRounds.push({
+            roundNumber,
+            meetLink,
+            meetCode,
+            scheduledAt,
+            createdBy: req.user.id
+        });
+        application.status = APPLICATION_STATUS.INTERVIEW_SCHEDULED;
+        await application.save();
+    }
 
-    ApiResponse.success(application, 'Interview scheduled successfully').send(res);
+    const updatedApp = await Application.findById(req.params.id);
+    ApiResponse.success(updatedApp, isReschedule ? 'Interview rescheduled' : 'Interview scheduled').send(res);
 
     // Global Data Sync
-    getIO()?.emit('data:updated', { type: 'application', action: 'schedule', id: req.params.id });
+    getIO()?.emit('data:updated', { type: 'application', action: isReschedule ? 'reschedule' : 'schedule', id: req.params.id });
 
-    // Notification Logic: Notify both Candidate (Case 11/12) and Employer
     const job = await Job.findById(application.job);
     const candidateUser = await User.findById(application.candidate);
-    const dateStr = new Date(scheduledAt).toLocaleDateString();
-    const timeStr = new Date(scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateStr = new Date(scheduledAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const timeStr = new Date(scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const roleLabel = req.user.role === USER_ROLES.ADMIN ? 'Admin' : 'Recruiter';
+    const actionLabel = isReschedule ? 'Rescheduled' : 'Scheduled';
+    const actionType = isReschedule ? 'reschedule' : 'interview';
 
     // 1. Notify Candidate
     createNotification({
         user: application.candidate,
         role: 'candidate',
-        type: 'interview',
-        title: 'Interview Scheduled',
-        message: `Interview scheduled for ${job?.title} - Round ${roundNumber} on ${dateStr} at ${timeStr}`,
+        type: actionType,
+        title: `Interview ${actionLabel}`,
+        message: `Interview ${isReschedule ? 'for Round ' + roundNumber + ' has been rescheduled' : 'scheduled for ' + job?.title + ' - Round ' + roundNumber} on ${dateStr} at ${timeStr}`,
         jobId: application.job,
         applicationId: application._id,
         route: '/candidate/applications'
@@ -314,12 +377,35 @@ export const scheduleInterview = asyncHandler(async (req, res) => {
         createNotification({
             user: employerDoc.userId,
             role: 'employer',
-            type: 'interview',
-            title: 'Interview Scheduled',
-            message: `Interview scheduled for ${candidateUser?.firstName} ${candidateUser?.lastName} for ${job.title} - Round ${roundNumber} on ${dateStr} at ${timeStr}`,
+            type: actionType,
+            title: `Interview ${actionLabel} by ${roleLabel}`,
+            message: `${roleLabel} ${req.user.firstName} ${req.user.lastName} has ${actionLabel.toLowerCase()} an interview for ${candidateUser?.firstName} ${candidateUser?.lastName}. Round: ${roundNumber}, Date: ${dateStr}, Time: ${timeStr}`,
             jobId: job._id,
             applicationId: application._id,
-            route: '/employer/job-requests' // Or appropriate module
+            route: `/employer/jobs/${job._id}/review?appId=${application._id}`
+        });
+    }
+
+    // 3. Cross-Role Notification (Admin <-> Recruiter)
+    if (req.user.role === USER_ROLES.ADMIN) {
+        // Admin scheduled -> Notify Recruiter
+        notifyJobRecruiters(job._id, {
+            type: actionType,
+            title: `Admin ${actionLabel} Interview`,
+            message: `Admin ${req.user.firstName} ${req.user.lastName} has ${actionLabel.toLowerCase()} Round ${roundNumber} for ${candidateUser?.firstName} ${candidateUser?.lastName} on ${dateStr} at ${timeStr}`,
+            jobId: job._id,
+            applicationId: application._id,
+            route: `/recruiter/job/${job._id}/applications`
+        });
+    } else if (req.user.role === USER_ROLES.RECRUITER) {
+        // Recruiter scheduled -> Notify Admin
+        notifyAdmins({
+            type: actionType,
+            title: `Recruiter ${actionLabel} Interview`,
+            message: `Recruiter ${req.user.firstName} ${req.user.lastName} has ${actionLabel.toLowerCase()} Round ${roundNumber} for ${candidateUser?.firstName} ${candidateUser?.lastName} on ${dateStr} at ${timeStr}`,
+            jobId: job._id,
+            applicationId: application._id,
+            route: `/applications?jobId=${job._id}`
         });
     }
 });
@@ -366,7 +452,7 @@ export const finalSelect = asyncHandler(async (req, res) => {
     const job = await Job.findById(application.job).populate('companyId');
     const candidateUser = await User.findById(application.candidate);
 
-    // 1. Notify Candidate (Case 14)
+    // 1. Notify Candidate
     createNotification({
         user: application.candidate,
         role: 'candidate',
@@ -378,19 +464,43 @@ export const finalSelect = asyncHandler(async (req, res) => {
         route: '/candidate/applications'
     });
 
-    // 2. Notify Employer (Case 14)
+    // 2. Notify Employer
     const EmployerModel = (await import('../models/Employer.model.js')).default;
     const employerDoc = await EmployerModel.findById(job.companyId);
     if (employerDoc) {
+        const roleLabel = req.user.role === USER_ROLES.ADMIN ? 'Admin' : 'Recruiter';
         createNotification({
             user: employerDoc.userId,
             role: 'employer',
             type: 'hire',
-            title: 'Candidate Hired',
-            message: `${candidateUser?.firstName} ${candidateUser?.lastName} has been hired for ${job.title} in your company`,
+            title: `Candidate Selected for Hire by ${roleLabel}`,
+            message: `${roleLabel} ${req.user.firstName} ${req.user.lastName} has finalized ${candidateUser?.firstName} ${candidateUser?.lastName} for ${job.title}`,
             jobId: job._id,
             applicationId: application._id,
-            route: '/employer/job-requests'
+            route: `/employer/jobs/${job._id}/review?appId=${application._id}`
+        });
+    }
+
+    // 3. Cross-Role Notification (Admin <-> Recruiter)
+    if (req.user.role === USER_ROLES.RECRUITER) {
+        // Recruiter hired -> Notify Admin
+        notifyAdmins({
+            type: 'hire',
+            title: 'Candidate Hired by Recruiter',
+            message: `Recruiter ${req.user.firstName} ${req.user.lastName} has hired ${candidateUser?.firstName} ${candidateUser?.lastName} for ${job.title}`,
+            jobId: job._id,
+            applicationId: application._id,
+            route: `/shortlisted-candidates`
+        });
+    } else if (req.user.role === USER_ROLES.ADMIN) {
+        // Admin hired -> Notify Recruiter
+        notifyJobRecruiters(job._id, {
+            type: 'hire',
+            title: 'Candidate Hired by Admin',
+            message: `Admin ${req.user.firstName} ${req.user.lastName} has hired ${candidateUser?.firstName} ${candidateUser?.lastName} for ${job.title}`,
+            jobId: job._id,
+            applicationId: application._id,
+            route: `/recruiter/job/${job._id}/applications`
         });
     }
 });
@@ -417,7 +527,7 @@ export const finalReject = asyncHandler(async (req, res) => {
     const job = await Job.findById(application.job);
     const candidateUser = await User.findById(application.candidate);
 
-    // 1. Notify Candidate (Case 13)
+    // 1. Notify Candidate
     createNotification({
         user: application.candidate,
         role: 'candidate',
@@ -429,19 +539,20 @@ export const finalReject = asyncHandler(async (req, res) => {
         route: '/candidate/applications'
     });
 
-    // 2. Notify Employer (Case 13)
+    // 2. Notify Employer
     const EmployerModel = (await import('../models/Employer.model.js')).default;
     const employerDoc = await EmployerModel.findById(job.companyId);
     if (employerDoc) {
+        const roleLabel = req.user.role === USER_ROLES.ADMIN ? 'Admin' : 'Recruiter';
         createNotification({
             user: employerDoc.userId,
             role: 'employer',
             type: 'rejection',
-            title: 'Candidate Rejected',
-            message: `${candidateUser?.firstName} ${candidateUser?.lastName} was rejected for ${job.title}`,
+            title: `Candidate Rejected by ${roleLabel}`,
+            message: `${roleLabel} ${req.user.firstName} ${req.user.lastName} has rejected ${candidateUser?.firstName} ${candidateUser?.lastName} for ${job.title}`,
             jobId: job._id,
             applicationId: application._id,
-            route: '/employer/job-requests'
+            route: `/employer/jobs/${job._id}/review?appId=${application._id}`
         });
     }
 });
@@ -512,20 +623,26 @@ export const getEmployerShortlisted = asyncHandler(async (req, res) => {
  * @access  Private/Employer
  */
 export const employerApprove = asyncHandler(async (req, res) => {
+    const existing = await Application.findById(req.params.id);
+    if (!existing) throw ApiError.notFound('Application not found');
+
+    // Prevent duplicate approve actions
+    if (existing.status === APPLICATION_STATUS.EMPLOYER_SHORTLISTED) {
+        return ApiResponse.success(existing, 'Already approved').send(res);
+    }
+
     const application = await Application.findByIdAndUpdate(
         req.params.id,
         { status: APPLICATION_STATUS.EMPLOYER_SHORTLISTED },
         { new: true }
     );
 
-    if (!application) throw ApiError.notFound('Application not found');
-
     ApiResponse.success(application, 'Candidate approved by employer').send(res);
 
     // Global Data Sync
     getIO()?.emit('data:updated', { type: 'application', action: 'employer-approve', id: req.params.id });
 
-    // Notification Logic: Notify Candidate & Recruiter (Case 10)
+    // Notification Logic: Notify Candidate & Recruiter
     const job = await Job.findById(application.job);
     const employerUser = await User.findById(req.user.id);
     const candidateUser = await User.findById(application.candidate);
@@ -559,20 +676,26 @@ export const employerApprove = asyncHandler(async (req, res) => {
  * @access  Private/Employer
  */
 export const employerReject = asyncHandler(async (req, res) => {
+    const existing = await Application.findById(req.params.id);
+    if (!existing) throw ApiError.notFound('Application not found');
+
+    // Prevent duplicate reject actions
+    if (existing.status === APPLICATION_STATUS.EMPLOYER_REJECTED) {
+        return ApiResponse.success(existing, 'Already rejected').send(res);
+    }
+
     const application = await Application.findByIdAndUpdate(
         req.params.id,
         { status: APPLICATION_STATUS.EMPLOYER_REJECTED },
         { new: true }
     );
 
-    if (!application) throw ApiError.notFound('Application not found');
-
     ApiResponse.success(application, 'Candidate rejected by employer').send(res);
 
     // Global Data Sync
     getIO()?.emit('data:updated', { type: 'application', action: 'employer-reject', id: req.params.id });
 
-    // Notification Logic: Notify Candidate & Recruiter (Case 9)
+    // Notification Logic: Notify Candidate & Recruiter
     const job = await Job.findById(application.job);
     const employerUser = await User.findById(req.user.id);
     const candidateUser = await User.findById(application.candidate);
@@ -606,13 +729,19 @@ export const employerReject = asyncHandler(async (req, res) => {
  * @access  Private/Employer
  */
 export const employerHire = asyncHandler(async (req, res) => {
+    const existing = await Application.findById(req.params.id);
+    if (!existing) throw ApiError.notFound('Application not found');
+
+    // Prevent duplicate hire actions
+    if (existing.status === APPLICATION_STATUS.FINAL_SELECTED) {
+        return ApiResponse.success(existing, 'Already hired').send(res);
+    }
+
     const application = await Application.findByIdAndUpdate(
         req.params.id,
         { status: APPLICATION_STATUS.FINAL_SELECTED },
         { new: true }
     );
-
-    if (!application) throw ApiError.notFound('Application not found');
 
     ApiResponse.success(application, 'Candidate hired successfully by employer').send(res);
 
@@ -644,6 +773,16 @@ export const employerHire = asyncHandler(async (req, res) => {
         applicationId: application._id,
         route: `/recruiter/job/${job._id}/applications`
     });
+
+    // 3. Notify Admin
+    notifyAdmins({
+        type: 'hire',
+        title: 'Candidate Hired',
+        message: `${candidateUser?.firstName} ${candidateUser?.lastName} has been hired by Employer ${employerUser?.firstName} ${employerUser?.lastName} for ${job?.title}`,
+        jobId: job._id,
+        applicationId: application._id,
+        route: `/shortlisted-candidates`
+    });
 });
 
 // ==================== PIPELINE / ADMIN VIEW ====================
@@ -658,7 +797,6 @@ export const getPipeline = asyncHandler(async (req, res) => {
 
     let job = await Job.findById(jobId);
     
-    // If job not found, check if jobId is a JobRequest ID
     if (!job) {
         const jr = await JobRequest.findById(jobId);
         if (jr && jr.jobId) {
@@ -678,7 +816,6 @@ export const getPipeline = asyncHandler(async (req, res) => {
         }
     }
 
-    // Security: Employer can only see their own job pipelines
     if (req.user.role === USER_ROLES.EMPLOYER) {
         const employer = await Employer.findOne({ userId: req.user.id });
 
@@ -697,7 +834,6 @@ export const getPipeline = asyncHandler(async (req, res) => {
     const pipeline = {
         [APPLICATION_STATUS.APPLIED]: [],
         [APPLICATION_STATUS.UNDER_REVIEW]: [],
-
         [APPLICATION_STATUS.RECRUITER_SHORTLISTED]: [],
         [APPLICATION_STATUS.EMPLOYER_SHORTLISTED]: [],
         [APPLICATION_STATUS.INTERVIEW_SCHEDULED]: [],
@@ -710,7 +846,6 @@ export const getPipeline = asyncHandler(async (req, res) => {
         if (pipeline[app.status]) {
             pipeline[app.status].push(app);
         } else if (app.status === APPLICATION_STATUS.RECRUITER_REJECTED || app.status === APPLICATION_STATUS.EMPLOYER_REJECTED) {
-            // Group all rejections into Final Rejected for the Kanji board view
             pipeline[APPLICATION_STATUS.FINAL_REJECTED].push(app);
         }
     });
@@ -730,7 +865,6 @@ export const getAllApplicationsAdmin = asyncHandler(async (req, res) => {
     const query = {};
     if (status) query.status = status;
 
-    // Search logic: name or email
     if (search) {
         const users = await User.find({
             $or: [

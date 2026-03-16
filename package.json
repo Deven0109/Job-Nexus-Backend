@@ -1,7 +1,7 @@
 {
   "name": "job-consultancy-backend",
   "version": "1.0.0",
-  "description": "Job Consultancy Platform - Backend API",
+  "description": "Job Nexus Platform - Backend API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

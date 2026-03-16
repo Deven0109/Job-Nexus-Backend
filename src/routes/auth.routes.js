@@ -21,6 +21,7 @@ import {
 import validate from '../middlewares/validate.js';
 import auth from '../middlewares/auth.js';
 import { authLimiter } from '../middlewares/rateLimiter.js';
+import { updateProfileValidation } from '../validators/profile.validator.js';
 
 const router = Router();
 
@@ -47,7 +48,7 @@ router.post('/logout', auth, logout);
 router.put('/change-password', auth, changePasswordValidation, validate, changePassword);
 
 // PUT /api/auth/update-profile — Update profile
-router.put('/update-profile', auth, updateProfile);
+router.put('/update-profile', auth, updateProfileValidation, validate, updateProfile);
 
 // ==================== PLACEHOLDER ROUTES (Day 3) ====================
 // POST /api/auth/forgot-password — Request password reset OTP

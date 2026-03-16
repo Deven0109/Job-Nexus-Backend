@@ -105,7 +105,7 @@ if (config.env === 'development') {
 app.get('/api/health', (req, res) => {
     res.status(200).json({
         success: true,
-        message: 'Job Consultancy API is running',
+        message: 'Job Nexus API is running',
         environment: config.env,
         timestamp: new Date().toISOString(),
     });
@@ -113,6 +113,9 @@ app.get('/api/health', (req, res) => {
 
 // Serve static files from public directory
 app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
+
+// Serve admin panel static files (Ensures /admin requests look in the admin build folder)
+app.use('/admin', express.static(path.join(__dirname, '../admin')));
 
 import jobRoutes from './routes/job.routes.js';
 
@@ -142,17 +145,15 @@ app.use('/api/notifications', notificationRoutes);
 // Serve frontend static files
 app.use(express.static(path.join(__dirname, '../public')));
 
+// Fallback for Admin SPA (Handle /admin routes specifically)
+app.get('/admin/*any', (req, res) => {
+    res.sendFile(path.join(__dirname, '../admin/index.html'));
+});
+
 // Fallback for SPA (HashRouter uses index.html as anchor)
 app.get('/*any', (req, res, next) => {
     // If it's an API route, let it fall through to 404
     if (req.url.startsWith('/api')) return next();
-    
-    // Serve admin frontend for /admin routes
-    if (req.url.startsWith('/admin')) {
-        return res.sendFile(path.join(__dirname, '../public/admin/index.html'));
-    }
-    
-    // Serve main frontend for all other routes
     res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 

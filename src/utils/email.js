@@ -79,7 +79,7 @@ const sendEmail = async (options) => {
             });
 
             const fallbackInfo = await fallbackTransporter.sendMail({
-                from: '"Job Consultancy Fallback" <test@ethereal.email>',
+                from: '"Job Nexus Fallback" <test@ethereal.email>',
                 to: options.email,
                 subject: options.subject,
                 text: options.message,

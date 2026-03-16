@@ -18,7 +18,7 @@ const startServer = async () => {
 
             server.listen(config.port, '0.0.0.0', () => {
                 console.log(`\n🚀 ==========================================`);
-                console.log(`   Job Consultancy API Server`);
+                console.log(`   Job Nexus API Server`);
                 console.log(`   Environment: ${config.env}`);
                 console.log(`   Port: ${config.port}`);
                 console.log(`   API: http://localhost:${config.port}/api`);

@@ -41,61 +41,67 @@ export const getJobs = asyncHandler(async (req, res) => {
         });
     }
 
-    if (andClauses.length > 0) {
-        filter.$and = andClauses;
-    }
-
     if (req.query.country) {
-        filter.country = new RegExp(`^${req.query.country}$`, 'i');
+        andClauses.push({ country: new RegExp(`^${req.query.country}$`, 'i') });
     }
 
     if (req.query.states) {
         const statesList = req.query.states.split(',').map(s => s.trim());
-        if (filter.state) {
-            filter.state = { $in: [...statesList, filter.state] };
-        } else {
-            filter.state = new RegExp(statesList.join('|'), 'i');
-        }
+        andClauses.push({ state: { $in: statesList.map(s => new RegExp(`^${s}$`, 'i')) } });
     } else if (req.query.state) {
-        filter.state = new RegExp(`^${req.query.state}$`, 'i');
+        andClauses.push({ state: new RegExp(`^${req.query.state}$`, 'i') });
     }
 
     if (req.query.categories) {
         const cats = req.query.categories.split(',').map(c => new RegExp(`^${c.trim()}$`, 'i'));
-        filter.category = { $in: cats };
+        andClauses.push({ category: { $in: cats } });
     } else if (req.query.category) {
-        filter.category = new RegExp(`^${req.query.category}$`, 'i');
+        andClauses.push({ category: new RegExp(`^${req.query.category}$`, 'i') });
     }
 
     if (req.query.skills) {
         const skillsList = req.query.skills.split(',').map(s => s.trim());
-        filter.requiredSkills = { $in: skillsList.map(s => new RegExp(`^${s}$`, 'i')) };
+        andClauses.push({ requiredSkills: { $in: skillsList.map(s => new RegExp(`^${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')) } });
     }
 
     if (req.query.experience) {
         const exps = req.query.experience.split(',').map(e => e.trim());
-        const expRegexes = exps.map(e => new RegExp(e.replace('+', '\\+'), 'i'));
-        filter.experience = { $in: expRegexes };
+        const orConditions = [];
+
+        exps.forEach(e => {
+            if (e.toLowerCase() === 'fresher') {
+                orConditions.push({ experience: /^(0|fresher|0\s*years?)$/i });
+            } else if (e === '0-2 Years') {
+                orConditions.push({ experience: /^(0|1|2|0-1|0-2|1-2)(\s*years?)?$|^0\s*-\s*2$|^02$/i });
+            } else if (e === '2-4 Years') {
+                orConditions.push({ experience: /^(2|3|4|2-3|3-4|2-4)(\s*years?)?$|^2\s*-\s*4$|^24$/i });
+            } else if (e === '5+ Years') {
+                orConditions.push({ experience: /^([5-9]|[1-9][0-9]+)(\s*years?)?$|^5\+$/i });
+            } else {
+                orConditions.push({ experience: new RegExp(e.replace('+', '\\+'), 'i') });
+            }
+        });
+
+        if (orConditions.length > 0) {
+            andClauses.push({ $or: orConditions });
+        }
     }
 
     if (req.query.salaryMin || req.query.salaryMax) {
-        filter.salaryMax = {};
-        filter.salaryMin = {};
-
         if (req.query.salaryMin) {
-            filter.salaryMax.$gte = Number(req.query.salaryMin);
+            andClauses.push({ salaryMax: { $gte: Number(req.query.salaryMin) } });
         }
-
         if (req.query.salaryMax) {
-            filter.salaryMin.$lte = Number(req.query.salaryMax);
+            andClauses.push({ salaryMin: { $lte: Number(req.query.salaryMax) } });
         }
-
-        if (Object.keys(filter.salaryMax).length === 0) delete filter.salaryMax;
-        if (Object.keys(filter.salaryMin).length === 0) delete filter.salaryMin;
     }
 
-    if (req.query.workType) filter.workType = req.query.workType;
-    if (req.query.currency) filter.currency = req.query.currency;
+    if (req.query.workType) andClauses.push({ workType: req.query.workType });
+    if (req.query.currency) andClauses.push({ currency: req.query.currency });
+
+    if (andClauses.length > 0) {
+        filter.$and = andClauses;
+    }
 
     const [jobs, total] = await Promise.all([
         Job.find(filter)
@@ -142,8 +148,8 @@ export const getJobById = asyncHandler(async (req, res) => {
  * @access  Public
  */
 export const getPopularCategories = asyncHandler(async (req, res) => {
-    // Top 5 categories where candidates applied the most
-    const popular = await Application.aggregate([
+    // Top 5 categories where candidates applied the most (only for active jobs)
+    let popular = await Application.aggregate([
         {
             $lookup: {
                 from: 'jobs',
@@ -153,7 +159,13 @@ export const getPopularCategories = asyncHandler(async (req, res) => {
             }
         },
         { $unwind: '$jobData' },
-        { $match: { 'jobData.category': { $nin: [null, ''] } } },
+        { 
+            $match: { 
+                'jobData.status': 'active', 
+                'jobData.visibility': 'public',
+                'jobData.category': { $nin: [null, ''] }
+            } 
+        },
         {
             $group: {
                 _id: '$jobData.category',
@@ -164,7 +176,8 @@ export const getPopularCategories = asyncHandler(async (req, res) => {
         { $limit: 5 }
     ]);
 
-    // Also get active job count per category for each popular one
+    // Fallback logic removed as per user request to only show categories with applications
+    // result construction
     const categoryNames = popular.map(p => p._id);
     const jobCounts = await Job.aggregate([
         { $match: { status: 'active', visibility: 'public', category: { $in: categoryNames } } },
@@ -175,10 +188,11 @@ export const getPopularCategories = asyncHandler(async (req, res) => {
 
     const result = popular.map(p => ({
         category: p._id,
-        applicationCount: p.applicationCount,
+        applicationCount: p.applicationCount || 0,
         jobCount: jobCountMap[p._id] || 0
     }));
-    ApiResponse.success(result, 'Popular categories retrieved').send(res);
+
+    ApiResponse.success(result, 'Popular categories based on applications retrieved').send(res);
 });
 
 /**

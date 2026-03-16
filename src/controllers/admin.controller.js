@@ -72,7 +72,7 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
         User.find()
             .sort({ createdAt: -1 })
             .limit(5)
-            .select('firstName lastName email role isActive createdAt'),
+            .select('firstName lastName email role isActive createdAt avatar'),
         Job.countDocuments({ status: 'active' }),
         Application.countDocuments(),
         Application.countDocuments({ status: APPLICATION_STATUS.SHORTLISTED }),
@@ -221,7 +221,7 @@ export const listUsers = asyncHandler(async (req, res) => {
             .sort(sortObj)
             .skip(skip)
             .limit(limit)
-            .select('firstName lastName email role phone isActive isEmailVerified lastLoginAt loginCount createdAt'),
+            .select('firstName lastName email role phone isActive isEmailVerified lastLoginAt loginCount createdAt avatar'),
         User.countDocuments(filter),
     ]);
 
@@ -328,8 +328,8 @@ export const createUser = asyncHandler(async (req, res) => {
     try {
         await sendEmail({
             email: user.email,
-            subject: 'Account Created - Job Consultancy Platform',
-            message: `Hello ${user.firstName},\n\nYour account has been created by an administrator as a ${user.role}.\n\nYou can now log in using this email address.\n\nBest regards,\nJob Consultancy Team`,
+            subject: 'Account Created - Job Nexus',
+            message: `Hello ${user.firstName},\n\nYour account has been created by an administrator as a ${user.role}.\n\nYou can now log in using this email address.\n\nBest regards,\nJob Nexus Team`,
         });
     } catch (emailErr) {
         console.error('Welcome email failed to send:', emailErr);
@@ -544,7 +544,7 @@ export const listEmployers = asyncHandler(async (req, res) => {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .select('firstName lastName email phone isActive isEmailVerified lastLoginAt createdAt'),
+            .select('firstName lastName email phone isActive isEmailVerified lastLoginAt createdAt avatar'),
         User.countDocuments(filter),
     ]);
 
@@ -603,7 +603,7 @@ export const listCandidates = asyncHandler(async (req, res) => {
             .sort(sortObj)
             .skip(skip)
             .limit(limit)
-            .select('firstName lastName email phone isActive lastLoginAt createdAt'),
+            .select('firstName lastName email phone isActive lastLoginAt createdAt avatar'),
         User.countDocuments(filter),
     ]);
 
@@ -647,7 +647,7 @@ export const listRecruiters = asyncHandler(async (req, res) => {
             .sort(sortObj)
             .skip(skip)
             .limit(limit)
-            .select('firstName lastName email phone isActive lastLoginAt createdAt'),
+            .select('firstName lastName email phone isActive lastLoginAt createdAt avatar'),
         User.countDocuments(filter),
     ]);
 

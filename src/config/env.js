@@ -27,7 +27,7 @@ const config = {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
     from: process.env.FROM_EMAIL || 'noreply@jobconsultancy.com',
-    fromName: process.env.FROM_NAME || 'Job Consultancy Platform',
+    fromName: process.env.FROM_NAME || 'Job Nexus',
   },
 
   // AWS S3

@@ -102,8 +102,8 @@ export const register = asyncHandler(async (req, res) => {
         try {
             await sendEmail({
                 email: user.email,
-                subject: 'Welcome to Job Consultancy Platform',
-                message: `Hello ${user.firstName},\n\nYour account has been created successfully as a ${user.role}.\n\nYou can now log in and explore our platform.\n\nBest regards,\nJob Consultancy Team`,
+                subject: 'Account Created - Job Nexus',
+                message: `Hello ${user.firstName},\n\nYour account has been created by an administrator as a ${user.role}.\n\nYou can now log in using this email address.\n\nBest regards,\nJob Nexus Team`,
             });
         } catch (emailErr) {
             console.error('Welcome email failed to send:', emailErr);
@@ -612,7 +612,10 @@ export const changePassword = asyncHandler(async (req, res) => {
 
     // Update password (pre-save hook will hash it)
     user.password = newPassword;
-    await user.save();
+    
+    // Use validateBeforeSave: false to ensure user can change password even if 
+    // some other required fields (like phone) are missing in legacy records.
+    await user.save({ validateBeforeSave: false });
 
     ApiResponse.success(null, 'Password changed successfully').send(res);
 });

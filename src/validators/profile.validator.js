@@ -13,9 +13,8 @@ export const updateProfileValidation = [
         .withMessage('First name can only contain letters, spaces, hyphens, and apostrophes'),
 
     body('lastName')
-        .optional()
+        .optional({ values: 'falsy' })
         .trim()
-        .notEmpty().withMessage('Last name cannot be empty')
         .isLength({ max: 50 }).withMessage('Last name cannot exceed 50 characters')
         .matches(/^[a-zA-Z\s'-]+$/)
         .withMessage('Last name can only contain letters, spaces, hyphens, and apostrophes'),
