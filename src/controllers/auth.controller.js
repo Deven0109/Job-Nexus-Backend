@@ -196,7 +196,7 @@ export const login = asyncHandler(async (req, res) => {
 
         await user.save({ validateBeforeSave: false });
 
-        const message = `Hello, Your verification code is: ${otp}`;
+        const message = `Hello,\n\nYour verification code for Job Nexus is: ${otp}\n\nThis code is valid for 5 minutes.\n\nBest regards,\nJob Nexus Team`;
 
         // Log OTP in development for easier debugging
         if (process.env.NODE_ENV === 'development') {
@@ -443,7 +443,7 @@ export const resendLoginOtp = asyncHandler(async (req, res) => {
 
     await user.save({ validateBeforeSave: false });
 
-    const message = `Hello, Your verification code is: ${otp}`;
+    const message = `Hello,\n\nYour verification code for Job Nexus is: ${otp}\n\nThis code is valid for 5 minutes.\n\nBest regards,\nJob Nexus Team`;
 
     // Log OTP in development for easier debugging
     if (process.env.NODE_ENV === 'development') {
@@ -680,7 +680,7 @@ export const forgotPassword = asyncHandler(async (req, res) => {
     await user.save({ validateBeforeSave: false });
 
     // Send email
-    const message = `Your password reset OTP is ${otp}. It is valid for 10 minutes.`;
+    const message = `Hello,\n\nYour password reset OTP for Job Nexus is: ${otp}\n\nIt is valid for 10 minutes.\n\nBest regards,\nJob Nexus Team`;
 
     // ALWAYS log to console in development so you can find the code easily
     if (process.env.NODE_ENV === 'development') {
