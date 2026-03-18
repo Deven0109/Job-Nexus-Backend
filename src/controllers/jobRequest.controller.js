@@ -113,19 +113,32 @@ export const getMyJobRequests = asyncHandler(async (req, res) => {
         filter.jobTitle = new RegExp(req.query.search, 'i');
     }
 
-    const [jobRequests, total] = await Promise.all([
+    const [jobRequests, total, stats] = await Promise.all([
         JobRequest.find(filter)
             .populate('companyId', 'companyName logo companyEmail')
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit),
         JobRequest.countDocuments(filter),
+        JobRequest.aggregate([
+            { $match: { createdByEmployer: req.user.id } },
+            { $group: { _id: "$status", count: { $sum: 1 } } }
+        ])
     ]);
+
+    const summary = {
+        total: stats.reduce((acc, s) => acc + s.count, 0),
+        pending: stats.find(s => s._id === 'pending')?.count || 0,
+        approved: stats.find(s => s._id === 'approved')?.count || 0,
+        rejected: stats.find(s => s._id === 'rejected')?.count || 0,
+        active: stats.find(s => s._id === 'active')?.count || 0,
+    };
 
     ApiResponse.success(
         {
             jobRequests,
             pagination: paginationMeta(total, page, limit),
+            summary,
         },
         'Job requests retrieved'
     ).send(res);
@@ -288,10 +301,18 @@ export const listJobRequests = asyncHandler(async (req, res) => {
     }
 
     // Also get authorized counts (regardless of UI search/filter) for the stats cards
-    const [globalActive, globalTotal] = await Promise.all([
-        JobRequest.countDocuments({ ...statsFilter, status: 'active' }),
-        JobRequest.countDocuments(statsFilter)
+    const summaryStats = await JobRequest.aggregate([
+        { $match: statsFilter },
+        { $group: { _id: "$status", count: { $sum: 1 } } }
     ]);
+
+    const summary = {
+        total: summaryStats.reduce((acc, s) => acc + s.count, 0),
+        pending: summaryStats.find(s => s._id === 'pending')?.count || 0,
+        approved: summaryStats.find(s => s._id === 'approved')?.count || 0,
+        rejected: summaryStats.find(s => s._id === 'rejected')?.count || 0,
+        active: summaryStats.find(s => s._id === 'active')?.count || 0,
+    };
 
     // Enhance with application counts
     const jobRequests = await Promise.all(jobRequestsRows.map(async (jr) => {
@@ -308,9 +329,10 @@ export const listJobRequests = asyncHandler(async (req, res) => {
         {
             jobRequests,
             pagination: paginationMeta(total, page, limit),
+            summary,
             stats: {
-                totalActive: globalActive,
-                totalOverall: globalTotal
+                totalActive: summary.active,
+                totalOverall: summary.total
             }
         },
         'Job requests retrieved'
@@ -480,6 +502,7 @@ export const rejectJobRequest = asyncHandler(async (req, res) => {
     }
 
     jobRequest.status = JOB_REQUEST_STATUS.REJECTED;
+    jobRequest.approvedByRecruiter = req.user.id;
     await jobRequest.save();
 
     ApiResponse.success({ jobRequest }, 'Job request rejected').send(res);

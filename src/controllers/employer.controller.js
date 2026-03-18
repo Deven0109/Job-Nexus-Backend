@@ -173,12 +173,22 @@ export const getActiveJobs = asyncHandler(async (req, res) => {
     const jobs = await Job.find({ companyId: employerProfile._id })
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(parseInt(limit));
+        .limit(parseInt(limit))
+        .lean();
+
+    // Get application counts for each job
+    const jobsWithCounts = await Promise.all(jobs.map(async (job) => {
+        const count = await Application.countDocuments({ job: job._id });
+        return {
+            ...job,
+            applicationCount: count
+        };
+    }));
 
     const total = await Job.countDocuments({ companyId: employerProfile._id });
 
     ApiResponse.success({
-        jobs,
+        jobs: jobsWithCounts,
         pagination: {
             total,
             page: parseInt(page),

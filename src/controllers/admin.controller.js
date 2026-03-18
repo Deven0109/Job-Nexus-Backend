@@ -75,7 +75,7 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
             .select('firstName lastName email role isActive createdAt avatar'),
         Job.countDocuments({ status: 'active' }),
         Application.countDocuments(),
-        Application.countDocuments({ status: APPLICATION_STATUS.SHORTLISTED }),
+        Application.countDocuments({ status: APPLICATION_STATUS.FINAL_SELECTED }),
         Application.find()
             .sort({ createdAt: -1 })
             .limit(5)

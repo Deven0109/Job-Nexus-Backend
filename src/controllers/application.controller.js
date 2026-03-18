@@ -850,7 +850,7 @@ export const getPipeline = asyncHandler(async (req, res) => {
         }
     });
 
-    ApiResponse.success(pipeline, 'Job pipeline retrieved').send(res);
+    ApiResponse.success({ pipeline, jobTitle: job.title }, 'Job pipeline retrieved').send(res);
 });
 
 /**

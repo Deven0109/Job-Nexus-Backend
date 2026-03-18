@@ -394,7 +394,10 @@ export const deleteJob = asyncHandler(async (req, res) => {
  * @access  Private/Recruiter
  */
 export const toggleJobStatus = asyncHandler(async (req, res) => {
-    const job = await Job.findOne({ _id: req.params.id, category: { $in: req.user.categories || [] } });
+    const filter = await getJobFilterForRecruiter(req.user.id);
+    filter._id = req.params.id;
+
+    const job = await Job.findOne(filter);
 
     if (!job) {
         throw ApiError.notFound('Job not found or unauthorized');
