@@ -330,14 +330,25 @@ export const getMyJobs = asyncHandler(async (req, res) => {
 
     const sortOrder = req.query.sortBy === 'oldest' ? 1 : -1;
 
-    const [jobs, total] = await Promise.all([
+    const [jobsRaw, total] = await Promise.all([
         Job.find(finalFilter)
             .sort({ createdAt: sortOrder })
             .skip(skip)
             .limit(limit)
-            .populate('companyId', 'companyName companyEmail'),
+            .populate('companyId', 'companyName companyEmail')
+            .lean(),
         Job.countDocuments(finalFilter)
     ]);
+
+    const jobs = await Promise.all(
+        jobsRaw.map(async (job) => {
+            const applicationCount = await Application.countDocuments({ job: job._id });
+            return {
+                ...job,
+                applicationCount
+            };
+        })
+    );
 
     ApiResponse.success(
         {
