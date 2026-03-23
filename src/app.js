@@ -38,6 +38,7 @@ app.use(helmet());
 // CORS configuration
 const allowedOrigins = [
     config.clientUrl,
+    'https://job-portal.itfuturz.in',
     'http://localhost:5173',
     'http://localhost:5174',
     'http://127.0.0.1:5173',

@@ -1,4 +1,5 @@
 import { Server } from 'socket.io';
+import config from './config/env.js';
 
 let io;
 
@@ -6,6 +7,8 @@ export const initSocket = (server) => {
   io = new Server(server, {
     cors: {
       origin: [
+        config.clientUrl,
+        'https://job-portal.itfuturz.in',
         'http://localhost:5173',
         'http://localhost:5174',
         'http://127.0.0.1:5173',
