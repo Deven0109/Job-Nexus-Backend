@@ -71,6 +71,11 @@ export const createJobRequestValidation = [
     body('urgency')
         .isIn(['Low', 'Medium', 'High'])
         .withMessage('Urgency must be Low, Medium, or High'),
+
+    body('currency')
+        .optional()
+        .isIn(['USD', 'INR', 'EUR', 'GBP', 'AED', 'CAD', 'AUD', 'SGD', 'SAR', 'QAR'])
+        .withMessage('Invalid currency'),
 ];
 
 export const updateJobRequestValidation = [
@@ -146,4 +151,9 @@ export const updateJobRequestValidation = [
         .optional()
         .isIn(['Low', 'Medium', 'High'])
         .withMessage('Urgency must be Low, Medium, or High'),
+
+    body('currency')
+        .optional()
+        .isIn(['USD', 'INR', 'EUR', 'GBP', 'AED', 'CAD', 'AUD', 'SGD', 'SAR', 'QAR'])
+        .withMessage('Invalid currency'),
 ];

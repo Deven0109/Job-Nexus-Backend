@@ -11,6 +11,7 @@ import { getIO } from '../socket.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { APPLICATION_STATUS, USER_ROLES, NOTIFICATION_TYPES } from '../utils/constants.js';
+import { paginationMeta } from '../utils/helpers.js';
 import {
     createNotification,
     notifyJobRecruiters,
@@ -142,11 +143,12 @@ export const getJobApplications = asyncHandler(async (req, res) => {
         .populate({
             path: 'candidate',
             select: 'firstName lastName email avatar phone',
-            populate: { path: 'candidateProfile', select: 'resumeUrl phone' }
+            populate: { path: 'candidateProfile', select: 'resumeUrl phone summary skills experience education city state country' }
         })
+        .populate('candidateProfile')
         .populate({
             path: 'job',
-            select: 'title location city state country workType experience salaryMin salaryMax'
+            select: 'title location city state country workType experience salaryMin salaryMax currency'
         })
         .sort({ createdAt: -1 })
         .lean({ virtuals: true });
@@ -273,7 +275,7 @@ export const shortlistApplication = asyncHandler(async (req, res) => {
     // Notification Logic
     const job = await Job.findById(application.job);
     const candidateUser = await User.findById(application.candidate);
-    
+
     // Notify Employer
     const EmployerModel = (await import('../models/Employer.model.js')).default;
     const employerDoc = await EmployerModel.findById(job.companyId);
@@ -594,11 +596,15 @@ export const getEmployerShortlisted = asyncHandler(async (req, res) => {
     const applications = await Application.find(matchQuery)
         .populate({
             path: 'candidate',
-            select: 'firstName lastName email avatar phone',
-            populate: { path: 'candidateProfile', select: 'resumeUrl summary skills experience education' }
-        }).populate({
+            select: 'firstName lastName email avatar phone skills',
+        })
+        .populate({
+            path: 'candidateProfile',
+            select: 'summary skills experience education city state country resumeUrl phone'
+        })
+        .populate({
             path: 'job',
-            select: 'title location city state country'
+            select: 'title location city state country salaryMin salaryMax currency'
         })
         .skip(skip)
         .limit(parseInt(limit))
@@ -796,7 +802,7 @@ export const getPipeline = asyncHandler(async (req, res) => {
     let { jobId } = req.params;
 
     let job = await Job.findById(jobId);
-    
+
     if (!job) {
         const jr = await JobRequest.findById(jobId);
         if (jr && jr.jobId) {
@@ -828,8 +834,9 @@ export const getPipeline = asyncHandler(async (req, res) => {
         .populate({
             path: 'candidate',
             select: 'firstName lastName email avatar phone',
-            populate: { path: 'candidateProfile', select: 'resumeUrl phone experience' }
-        });
+            populate: { path: 'candidateProfile', select: 'resumeUrl summary skills experience education city state country' }
+        })
+        .populate('candidateProfile');
 
     const pipeline = {
         [APPLICATION_STATUS.APPLIED]: [],
@@ -897,9 +904,6 @@ export const getAllApplicationsAdmin = asyncHandler(async (req, res) => {
 
     ApiResponse.success({
         applications,
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / parseInt(limit))
+        pagination: paginationMeta(total, page, limit)
     }, 'All applications retrieved').send(res);
 });

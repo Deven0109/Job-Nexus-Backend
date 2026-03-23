@@ -219,7 +219,7 @@ export const getRecentActivity = asyncHandler(async (req, res) => {
             path: 'candidate',
             select: 'firstName lastName email avatar'
         })
-        .populate('job', 'title location city state country workType experience salaryMin salaryMax')
+        .populate('job', 'title location city state country workType experience salaryMin salaryMax currency')
         .sort({ updatedAt: -1 })
         .limit(10);
 

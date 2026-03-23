@@ -265,6 +265,7 @@ export const createJob = asyncHandler(async (req, res) => {
         location: req.body.location,
         salaryMin: req.body.salaryMin,
         salaryMax: req.body.salaryMax,
+        currency: req.body.currency || 'INR',
         workType: req.body.workType,
         urgency: req.body.urgency,
         requiredSkills: req.body.requiredSkills,
@@ -272,7 +273,8 @@ export const createJob = asyncHandler(async (req, res) => {
         companyId: req.body.companyId || req.body.employer, // Fallback if old code passed employer
         createdByRecruiter: req.user.id,
         status: 'active',
-        visibility: 'public'
+        visibility: 'public',
+        jobRequestId: req.body.jobRequestId
     };
 
     // Recruiter validation for manual job creation (if not from request)
@@ -289,7 +291,7 @@ export const createJob = asyncHandler(async (req, res) => {
     if (jobData.jobRequestId) {
         await JobRequest.findByIdAndUpdate(
             jobData.jobRequestId,
-            { status: 'activated', jobId: job._id }
+            { status: 'active', jobId: job._id }
         );
     }
 

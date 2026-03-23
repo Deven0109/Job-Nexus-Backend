@@ -236,7 +236,7 @@ export const getMyApplications = asyncHandler(async (req, res) => {
             .populate({
                 path: 'job',
                 populate: { path: 'companyId', select: 'companyName' },
-                select: 'title location workType salaryMin salaryMax status'
+                select: 'title location workType salaryMin salaryMax currency status'
             }),
         Application.countDocuments({ candidate: req.user.id })
     ]);

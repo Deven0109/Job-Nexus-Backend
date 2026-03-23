@@ -49,7 +49,7 @@ export const createJobRequest = asyncHandler(async (req, res) => {
 
     const {
         position, jobTitle, jobCategory, numberOfVacancies, experienceRequired,
-        salaryMin, salaryMax, workType, country, state, city, pincode,
+        salaryMin, salaryMax, currency, workType, country, state, city, pincode,
         requiredSkills, jobDescription, urgency
     } = req.body;
 
@@ -62,6 +62,7 @@ export const createJobRequest = asyncHandler(async (req, res) => {
         experienceRequired,
         salaryMin,
         salaryMax,
+        currency: currency || 'INR',
         workType,
         country,
         state,
@@ -187,7 +188,7 @@ export const updateJobRequest = asyncHandler(async (req, res) => {
 
     const allowedFields = [
         'jobTitle', 'jobCategory', 'numberOfVacancies', 'experienceRequired',
-        'salaryMin', 'salaryMax', 'workType', 'country', 'state', 'city', 'pincode',
+        'salaryMin', 'salaryMax', 'currency', 'workType', 'country', 'state', 'city', 'pincode',
         'requiredSkills', 'jobDescription', 'urgency'
     ];
 
@@ -387,7 +388,7 @@ export const updateJobRequestByAdminRecruiter = asyncHandler(async (req, res, ne
 
     const allowedFields = [
         'jobTitle', 'jobCategory', 'numberOfVacancies', 'experienceRequired',
-        'salaryMin', 'salaryMax', 'workType', 'country', 'state', 'city', 'pincode',
+        'salaryMin', 'salaryMax', 'currency', 'workType', 'country', 'state', 'city', 'pincode',
         'requiredSkills', 'jobDescription', 'urgency'
     ];
 
@@ -404,25 +405,31 @@ export const updateJobRequestByAdminRecruiter = asyncHandler(async (req, res, ne
 
     await jobRequest.save();
 
-    // If the request is already active, sync the changes to the live Job document
-    if (jobRequest.status === 'active') {
-        const liveJob = await Job.findOne({ jobRequestId: jobRequest._id });
+    // If the request is already active or has a linked job, sync the changes to the live Job document
+    if (jobRequest.status === 'active' || jobRequest.jobId) {
+        // Find the live job using jobId first, then fallback to jobRequestId
+        const liveJob = jobRequest.jobId 
+            ? await Job.findById(jobRequest.jobId) 
+            : await Job.findOne({ jobRequestId: jobRequest._id });
+
         if (liveJob) {
-            const incomingTitle = req.body.jobTitle || req.body.position;
-            if (incomingTitle !== undefined) liveJob.title = incomingTitle;
-            if (req.body.jobCategory !== undefined) liveJob.category = req.body.jobCategory;
-            if (req.body.numberOfVacancies !== undefined) liveJob.vacancies = req.body.numberOfVacancies;
-            if (req.body.experienceRequired !== undefined) liveJob.experience = req.body.experienceRequired;
-            if (req.body.salaryMin !== undefined) liveJob.salaryMin = req.body.salaryMin;
-            if (req.body.salaryMax !== undefined) liveJob.salaryMax = req.body.salaryMax;
-            if (req.body.workType !== undefined) liveJob.workType = req.body.workType;
-            if (req.body.country !== undefined) liveJob.country = req.body.country;
-            if (req.body.state !== undefined) liveJob.state = req.body.state;
-            if (req.body.city !== undefined) liveJob.city = req.body.city;
-            if (req.body.pincode !== undefined) liveJob.pincode = req.body.pincode;
-            if (req.body.requiredSkills !== undefined) liveJob.requiredSkills = req.body.requiredSkills;
-            if (req.body.jobDescription !== undefined) liveJob.description = req.body.jobDescription;
-            if (req.body.urgency !== undefined) liveJob.urgency = req.body.urgency;
+            // Update fields from the already updated jobRequest object to ensure consistency
+            liveJob.title = jobRequest.jobTitle;
+            liveJob.category = jobRequest.jobCategory;
+            liveJob.vacancies = jobRequest.numberOfVacancies;
+            liveJob.experience = jobRequest.experienceRequired;
+            liveJob.salaryMin = jobRequest.salaryMin;
+            liveJob.salaryMax = jobRequest.salaryMax;
+            liveJob.currency = jobRequest.currency;
+            liveJob.workType = jobRequest.workType;
+            liveJob.country = jobRequest.country;
+            liveJob.state = jobRequest.state;
+            liveJob.city = jobRequest.city;
+            liveJob.pincode = jobRequest.pincode;
+            liveJob.requiredSkills = jobRequest.requiredSkills;
+            liveJob.description = jobRequest.jobDescription;
+            liveJob.urgency = jobRequest.urgency;
+
             await liveJob.save();
         }
     }
@@ -559,6 +566,7 @@ export const activateJob = asyncHandler(async (req, res) => {
         pincode: jobRequest.pincode,
         salaryMin: jobRequest.salaryMin,
         salaryMax: jobRequest.salaryMax,
+        currency: jobRequest.currency,
         workType: jobRequest.workType,
         urgency: jobRequest.urgency,
         requiredSkills: jobRequest.requiredSkills,

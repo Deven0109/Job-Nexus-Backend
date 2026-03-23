@@ -80,7 +80,7 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(5)
             .populate('candidate', 'firstName lastName avatar')
-            .populate('job', 'title location city state country workType experience salaryMin salaryMax'),
+            .populate('job', 'title location city state country workType experience salaryMin salaryMax currency'),
 
         // Detailed Activity Trend based on period
         Promise.all([
