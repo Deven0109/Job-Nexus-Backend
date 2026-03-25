@@ -2,6 +2,7 @@ import Job from '../models/Job.model.js';
 import User from '../models/User.model.js';
 import Application from '../models/Application.model.js';
 import RecruiterCategory from '../models/RecruiterCategory.model.js';
+import Employer from '../models/Employer.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { buildPagination, paginationMeta } from '../utils/helpers.js';
@@ -18,14 +19,20 @@ export const getJobs = asyncHandler(async (req, res) => {
     const filter = { status: 'active', visibility: 'public' };
     const andClauses = [];
 
-    // Handle explicit search or params
+    // Handle explicit search or params (Title or Company Name or Skills)
     if (req.query.title) {
         const titleRegex = new RegExp(req.query.title, 'i');
+        
+        // Find matching employers by company name
+        const matchingEmployers = await Employer.find({ companyName: titleRegex }).select('_id').lean();
+        const matchingEmployerIds = matchingEmployers.map(emp => emp._id);
+
         andClauses.push({
             $or: [
                 { title: titleRegex },
                 { category: titleRegex },
-                { requiredSkills: titleRegex }
+                { requiredSkills: titleRegex },
+                { companyId: { $in: matchingEmployerIds } }
             ]
         });
     }
